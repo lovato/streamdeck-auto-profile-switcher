@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WindowsApps Switcher</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      background: #2d2d2d;
+      color: #d0d0d0;
+      padding: 12px;
+    }
+
+    h2 {
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #444;
+    }
+
+    .description {
+      font-size: 11px;
+      color: #888;
+      margin-bottom: 14px;
+      line-height: 1.5;
+    }
+
+    label {
+      display: block;
+      font-size: 11px;
+      color: #aaa;
+      margin-bottom: 3px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      background: #1a1a1a;
+      border: 1px solid #555;
+      border-radius: 4px;
+      color: #fff;
+      padding: 5px 8px;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+
+    input[type="text"]:focus {
+      outline: none;
+      border-color: #0078d4;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 24px;
+      gap: 6px;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .row input { margin-bottom: 0; }
+
+    .remove-btn {
+      background: none;
+      border: 1px solid #555;
+      border-radius: 4px;
+      color: #888;
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+      padding: 3px 5px;
+    }
+
+    .remove-btn:hover { border-color: #e05555; color: #e05555; }
+
+    .col-label {
+      display: grid;
+      grid-template-columns: 1fr 1fr 24px;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+
+    .col-label span {
+      font-size: 10px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 5px 12px;
+      border-radius: 4px;
+      border: 1px solid #555;
+      background: #3a3a3a;
+      color: #ccc;
+      cursor: pointer;
+      font-size: 12px;
+      margin-right: 6px;
+      margin-top: 6px;
+    }
+
+    .btn:hover { background: #444; color: #fff; }
+    .btn.primary { background: #0078d4; border-color: #0078d4; color: #fff; }
+    .btn.primary:hover { background: #0086ef; }
+
+    #status {
+      margin-top: 10px;
+      font-size: 11px;
+      color: #7cb87c;
+      min-height: 16px;
+    }
+
+    #test-result {
+      margin-top: 8px;
+      padding: 8px;
+      background: #1a1a1a;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: monospace;
+      color: #aaa;
+      display: none;
+    }
+
+    .tip {
+      margin-top: 14px;
+      padding: 8px;
+      background: #1e2a38;
+      border-left: 3px solid #0078d4;
+      border-radius: 0 4px 4px 0;
+      font-size: 11px;
+      color: #7aabda;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>WindowsApps Profile Switcher</h2>
+  <p class="description">
+    Maps WindowsApps processes to StreamDeck profile names.<br>
+    Profile names must match exactly what you named them in StreamDeck.
+  </p>
+
+  <div class="col-label">
+    <span>Process match (partial)</span>
+    <span>Profile name (exact)</span>
+    <span></span>
+  </div>
+
+  <div id="entries"></div>
+
+  <button class="btn" onclick="addRow()">+ Add app</button>
+
+  <br>
+
+  <button class="btn primary" onclick="save()">Save</button>
+  <button class="btn" onclick="testDetection()">Test detection</button>
+
+  <div id="status"></div>
+  <div id="test-result"></div>
+
+  <div class="tip">
+    💡 To find the process name: focus the app, click <strong>Test detection</strong>.<br>
+    The profile name must match exactly, including capitals.
+  </div>
+
+<script>
+  // ── StreamDeck Property Inspector SDK connection ──────────────────────────
+  let sdConnection = null;
+  let actionContext = null;
+
+  const DEFAULT_MAP = [
+    { match: "ms-teams",        profile: "Teams"    },
+    { match: "whatsapp",        profile: "WhatsApp" },
+    { match: "windowsterminal", profile: "Terminal" },
+  ];
+
+  window.connectElgatoStreamDeckSocket = function(port, uuid, registerEvent, info, actionInfo) {
+    actionContext = uuid;
+    sdConnection  = new WebSocket(`ws://localhost:${port}`);
+
+    sdConnection.onopen = () => {
+      sdConnection.send(JSON.stringify({ event: registerEvent, uuid }));
+      sdConnection.send(JSON.stringify({ event: "getGlobalSettings", context: uuid }));
+    };
+
+    sdConnection.onmessage = (evt) => {
+      const msg = JSON.parse(evt.data);
+
+      if (msg.event === "didReceiveGlobalSettings") {
+        const map = msg.payload?.settings?.appMap;
+        renderRows(Array.isArray(map) && map.length ? map : DEFAULT_MAP);
+      }
+
+      if (msg.event === "sendToPropertyInspector" && msg.payload?.action === "detectionResult") {
+        const r = msg.payload;
+        const el = document.getElementById("test-result");
+        el.style.display = "block";
+        el.innerHTML =
+          `Active process: <strong style="color:#fff">${r.proc || "(none)"}</strong><br>` +
+          `Matched profile: <strong style="color:${r.profile !== "(no match)" ? "#7cb87c" : "#e07c7c"}">${r.profile}</strong>`;
+      }
+    };
+  };
+
+  // ── Row rendering ────────────────────────────────────────────────────────
+  function renderRows(map) {
+    const container = document.getElementById("entries");
+    container.innerHTML = "";
+    map.forEach(entry => addRow(entry.match, entry.profile));
+  }
+
+  function addRow(match = "", profile = "") {
+    const container = document.getElementById("entries");
+    const row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML = `
+      <input type="text" placeholder="e.g. ms-teams" value="${match}" class="match-input" />
+      <input type="text" placeholder="e.g. Teams"    value="${profile}" class="profile-input" />
+      <button class="remove-btn" onclick="this.parentElement.remove()">×</button>
+    `;
+    container.appendChild(row);
+  }
+
+  // ── Collect current rows ─────────────────────────────────────────────────
+  function collectRows() {
+    const rows = document.querySelectorAll(".row");
+    return Array.from(rows)
+      .map(r => ({
+        match:   r.querySelector(".match-input").value.trim(),
+        profile: r.querySelector(".profile-input").value.trim(),
+      }))
+      .filter(e => e.match && e.profile);
+  }
+
+  // ── Save ─────────────────────────────────────────────────────────────────
+  function save() {
+    const appMap = collectRows();
+    if (!sdConnection) return;
+    sdConnection.send(JSON.stringify({
+      event:   "sendToPlugin",
+      context: actionContext,
+      action:  "com.lovato.windowsapps-switcher.monitor",
+      payload: { action: "saveSettings", settings: { appMap } },
+    }));
+    const status = document.getElementById("status");
+    status.textContent = "✓ Saved";
+    setTimeout(() => { status.textContent = ""; }, 2000);
+  }
+
+  // ── Test detection ────────────────────────────────────────────────────────
+  function testDetection() {
+    if (!sdConnection) return;
+    document.getElementById("test-result").style.display = "none";
+    sdConnection.send(JSON.stringify({
+      event:   "sendToPlugin",
+      context: actionContext,
+      action:  "com.lovato.windowsapps-switcher.monitor",
+      payload: { action: "testDetection" },
+    }));
+  }
+
+  // Init with defaults if not connected
+  renderRows(DEFAULT_MAP);
+</script>
+</body>
+</html>
