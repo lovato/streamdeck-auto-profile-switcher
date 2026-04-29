@@ -329,8 +329,14 @@ async function pollOnce() {
 
     const profile = detectProfile(proc, title);
     if (profile !== lastProfile) {
+      const prev  = lastProfile;
       lastProfile = profile;
       if (profile) {
+        // Switching between two plugin profiles: release first so StreamDeck's
+        // "previous profile" pointer stays at Default, not at the prior plugin
+        // profile. Without this, switchToProfile('') later would peel back to
+        // the prior plugin profile instead of Default.
+        if (prev !== null) switchToProfile('');
         logMessage(`Detected "${proc}" → switching to profile "${profile}"`);
         switchToProfile(profile);
       } else {
