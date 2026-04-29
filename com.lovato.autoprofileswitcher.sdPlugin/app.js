@@ -175,24 +175,31 @@ function getProfileNames() {
 }
 
 // ─── Built-in Smart Profile mirror ───────────────────────────────────────────
-// switchToProfile('') only reverts to Default; it does NOT re-fire the built-in
-// Smart Profile for the currently focused window (the focus event already fired
-// while the plugin profile was active and was discarded).
-// Fix: read AppIdentifier from ProfilesV3 manifests, derive process names, and
-// handle those switches ourselves. Config is read from the existing StreamDeck
-// Smart Profile assignments — no duplication required.
-let builtInMap = {};  // { processName → profileName }
+// switchToProfile('') only reverts one step in StreamDeck's previous-profile
+// chain — if multiple plugin profiles were visited in sequence, the revert
+// lands on the previous plugin profile, not Default.
+// Fix: own the Default Profile (AppIdentifier="*") so we can call
+// switchToProfile(defaultProfileName) directly, bypassing the chain entirely.
+// All other AppIdentifier profiles are also owned so we handle switching for
+// them (see the cascade-fix problem).
+let builtInMap        = {};  // { processName → profileName }
+let defaultProfileName = '';  // name of the Default Profile (AppIdentifier="*")
 
 function loadBuiltInProfileMap() {
   const map = {};
+  defaultProfileName = '';
   try {
     for (const dir of fs.readdirSync(V3_DIR).filter(d => d.endsWith('.sdProfile'))) {
       const m = readManifest(dir);
       if (!m) continue;
       if (m.InstalledByPluginUUID && m.InstalledByPluginUUID !== PLUGIN_ID) continue;
-      // AppIdentifier = untagged profile; PluginSavedAppIdentifier = already tagged by us
+      // AppIdentifier = untagged; PluginSavedAppIdentifier = already owned by us
       const appId = m.AppIdentifier || m.PluginSavedAppIdentifier;
-      if (!appId || appId === '*') continue;
+      if (!appId) continue;
+      if (appId === '*') {
+        if (!defaultProfileName) defaultProfileName = m.Name;
+        continue;  // catch-all — don't add to the process→profile map
+      }
       const procName = appId.split(/[/\\]/).pop().replace(/\.exe$/i, '').toLowerCase();
       if (procName && m.Name) map[procName] = m.Name;
     }
@@ -204,6 +211,7 @@ function allTargets() {
   return [...new Set([
     ...appMap.map(e => e.profile).filter(Boolean),
     ...Object.values(builtInMap),
+    ...(defaultProfileName ? [defaultProfileName] : []),
   ])];
 }
 
@@ -229,8 +237,9 @@ function syncProfileTags(targets) {
       const PLUGIN_KEYS = ['InstalledByPluginUUID', 'PreconfiguredName', 'ReadOnly', 'PluginSavedAppIdentifier'];
       if (shouldTag && !isOurs) {
         if (m.InstalledByPluginUUID) continue;  // owned by another plugin
-        // Move AppIdentifier out of the manifest so StreamDeck won't overwrite our tag
-        if (m.AppIdentifier && m.AppIdentifier !== '*') {
+        // Move any AppIdentifier (including "*") out of the manifest so
+        // StreamDeck won't overwrite our tag via its built-in Smart Profile logic
+        if (m.AppIdentifier) {
           m.PluginSavedAppIdentifier = m.AppIdentifier;
           delete m.AppIdentifier;
         }
@@ -238,8 +247,8 @@ function syncProfileTags(targets) {
         m.PreconfiguredName     = m.Name;
         m.ReadOnly              = false;
         fs.writeFileSync(mPath, JSON.stringify(m), { encoding: 'utf8' });
-      } else if (isOurs && shouldTag && m.AppIdentifier && m.AppIdentifier !== '*') {
-        // Migration: already tagged but AppIdentifier wasn't moved yet — fix it now
+      } else if (isOurs && shouldTag && m.AppIdentifier) {
+        // Migration: already tagged but AppIdentifier wasn't moved yet
         m.PluginSavedAppIdentifier = m.AppIdentifier;
         delete m.AppIdentifier;
         fs.writeFileSync(mPath, JSON.stringify(m), { encoding: 'utf8' });
@@ -329,18 +338,14 @@ async function pollOnce() {
 
     const profile = detectProfile(proc, title);
     if (profile !== lastProfile) {
-      const prev  = lastProfile;
       lastProfile = profile;
       if (profile) {
-        // Switching between two plugin profiles: release first so StreamDeck's
-        // "previous profile" pointer stays at Default, not at the prior plugin
-        // profile. Without this, switchToProfile('') later would peel back to
-        // the prior plugin profile instead of Default.
-        if (prev !== null) switchToProfile('');
         logMessage(`Detected "${proc}" → switching to profile "${profile}"`);
         switchToProfile(profile);
       } else {
-        switchToProfile('');  // no match anywhere — fall back to Default profile
+        // Switch directly to the Default Profile by name so we bypass
+        // StreamDeck's "previous profile" chain (which only goes back one step).
+        switchToProfile(defaultProfileName || '');
       }
     }
   } finally {
