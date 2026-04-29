@@ -81,9 +81,11 @@ while ($true) {
     [FgWin32]::GetWindowText($fg, $sb, 512) | Out-Null
     $name  = if ($proc) { $proc.Name } else { "" }
     $title = $sb.ToString()
-    [Console]::WriteLine("$name|$title")
+    $sdWin = Get-Process -Name 'StreamDeck' -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [System.IntPtr]::Zero } | Select-Object -First 1
+    $sdOpen = if ($sdWin) { "1" } else { "0" }
+    [Console]::WriteLine("$sdOpen|$name|$title")
   } catch {
-    [Console]::WriteLine("|")
+    [Console]::WriteLine("0||")
   }
   [Console]::Out.Flush()
 }
@@ -134,10 +136,13 @@ function getActiveWindowInfo() {
     ensurePS();
     const wasEmpty = psQueue.length === 0;
     psQueue.push((line) => {
-      const sep   = line.indexOf('|');
-      const proc  = (sep >= 0 ? line.slice(0, sep) : line).toLowerCase().trim();
-      const title = (sep >= 0 ? line.slice(sep + 1) : '').trim();
-      resolve({ proc, title });
+      const firstPipe = line.indexOf('|');
+      const sdOpen    = firstPipe >= 0 && line.slice(0, firstPipe) === '1';
+      const rest      = firstPipe >= 0 ? line.slice(firstPipe + 1) : line;
+      const sep       = rest.indexOf('|');
+      const proc      = (sep >= 0 ? rest.slice(0, sep) : rest).toLowerCase().trim();
+      const title     = (sep >= 0 ? rest.slice(sep + 1) : '').trim();
+      resolve({ proc, title, sdOpen });
     });
     if (wasEmpty) psProc.stdin.write('\n');
   });
@@ -259,7 +264,13 @@ async function pollOnce() {
   if (isPollRunning || isTesting || settingsOpen) return;
   isPollRunning = true;
   try {
-    const { proc, title } = await getActiveWindowInfo();
+    const { proc, title, sdOpen } = await getActiveWindowInfo();
+
+    if (sdOpen) {
+      stableProc  = '';
+      stableCount = 0;
+      return;
+    }
 
     if (proc === stableProc) {
       stableCount = Math.min(stableCount + 1, STABLE_POLLS);
@@ -268,7 +279,6 @@ async function pollOnce() {
       stableCount = 1;
     }
     if (stableCount < STABLE_POLLS) return;
-    if (proc === 'streamdeck') return;  // settings window in focus — stay put
 
     const profile = detectProfile(proc, title);
     if (profile !== lastProfile) {
