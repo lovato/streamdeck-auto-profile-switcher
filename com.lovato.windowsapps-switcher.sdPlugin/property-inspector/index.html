@@ -38,7 +38,7 @@
       margin-bottom: 3px;
     }
 
-    input[type="text"] {
+    input[type="text"], select {
       width: 100%;
       background: #1a1a1a;
       border: 1px solid #555;
@@ -49,14 +49,16 @@
       margin-bottom: 8px;
     }
 
-    input[type="text"]:focus {
+    input[type="text"]:focus, select:focus {
       outline: none;
       border-color: #0078d4;
     }
 
+    select option { background: #2d2d2d; }
+
     .row {
       display: grid;
-      grid-template-columns: 1fr 1fr 24px;
+      grid-template-columns: 1fr 1fr 1fr 24px;
       gap: 6px;
       align-items: center;
       margin-bottom: 6px;
@@ -79,7 +81,7 @@
 
     .col-label {
       display: grid;
-      grid-template-columns: 1fr 1fr 24px;
+      grid-template-columns: 1fr 1fr 1fr 24px;
       gap: 6px;
       margin-bottom: 4px;
     }
@@ -147,8 +149,9 @@
   </p>
 
   <div class="col-label">
-    <span>Process match (partial)</span>
-    <span>Profile name (exact)</span>
+    <span>Process (partial)</span>
+    <span>Title match (optional)</span>
+    <span>Profile (exact)</span>
     <span></span>
   </div>
 
@@ -163,16 +166,20 @@
 
   <div id="status"></div>
   <div id="test-result"></div>
+  <button id="add-detection-btn" class="btn" onclick="addFromDetection()"
+          style="display:none; margin-top:6px">+ Add to app list</button>
 
   <div class="tip">
-    💡 To find the process name: focus the app, click <strong>Test detection</strong>.<br>
+    💡 Click <strong>Test detection</strong>, then switch to your app within 3 seconds.<br>
     The profile name must match exactly, including capitals.
   </div>
 
 <script>
   // ── StreamDeck Property Inspector SDK connection ──────────────────────────
-  let sdConnection = null;
-  let actionContext = null;
+  let sdConnection  = null;
+  let actionContext  = null;
+  let knownProfiles  = [];
+  let lastDetection  = null;
 
   const DEFAULT_MAP = [
     { match: "ms-teams",        profile: "Teams"    },
@@ -193,37 +200,89 @@
       const msg = JSON.parse(evt.data);
 
       if (msg.event === "didReceiveGlobalSettings") {
-        const map = msg.payload?.settings?.appMap;
-        renderRows(Array.isArray(map) && map.length ? map : DEFAULT_MAP);
+        const s = msg.payload?.settings || {};
+        renderRows(Array.isArray(s.appMap) && s.appMap.length ? s.appMap : DEFAULT_MAP);
+        if (s.lastDetection) showDetectionResult(s.lastDetection);
+        // Request profiles list to populate the dropdowns
+        sdConnection.send(JSON.stringify({
+          event: "sendToPlugin", context: uuid,
+          action: "com.lovato.windowsapps-switcher.monitor",
+          payload: { action: "getProfiles" },
+        }));
       }
 
-      if (msg.event === "sendToPropertyInspector" && msg.payload?.action === "detectionResult") {
-        const r = msg.payload;
-        const el = document.getElementById("test-result");
-        el.style.display = "block";
-        el.innerHTML =
-          `Active process: <strong style="color:#fff">${r.proc || "(none)"}</strong><br>` +
-          `Matched profile: <strong style="color:${r.profile !== "(no match)" ? "#7cb87c" : "#e07c7c"}">${r.profile}</strong>`;
+      if (msg.event === "sendToPropertyInspector") {
+        const p   = msg.payload;
+        const el  = document.getElementById("test-result");
+
+        if (p?.action === "detectionCountdown") {
+          el.style.display = "block";
+          el.innerHTML = `Switch to your app — capturing in <strong style="color:#fff">${p.seconds}s</strong>`;
+        }
+
+        if (p?.action === "profilesList")   populateProfileSelects(p.profiles);
+        if (p?.action === "detectionResult") showDetectionResult(p);
       }
     };
   };
 
   // ── Row rendering ────────────────────────────────────────────────────────
+  function buildProfileSelect(current) {
+    const sel = document.createElement("select");
+    sel.className = "profile-input";
+    sel.style.marginBottom = "0";
+    const blank = document.createElement("option");
+    blank.value = ""; blank.textContent = "— select profile —";
+    sel.appendChild(blank);
+    knownProfiles.forEach(name => {
+      const opt = document.createElement("option");
+      opt.value = name; opt.textContent = name;
+      if (name === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    if (current && !knownProfiles.includes(current)) {
+      const opt = document.createElement("option");
+      opt.value = current; opt.textContent = current;
+      opt.selected = true;
+      sel.insertBefore(opt, sel.children[1]);
+    }
+    return sel;
+  }
+
+  function populateProfileSelects(profiles) {
+    knownProfiles = profiles;
+    document.querySelectorAll(".profile-input").forEach(sel => {
+      const current = sel.value;
+      while (sel.options.length > 1) sel.remove(1);
+      profiles.forEach(name => {
+        const opt = document.createElement("option");
+        opt.value = name; opt.textContent = name;
+        if (name === current) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    });
+  }
+
   function renderRows(map) {
     const container = document.getElementById("entries");
     container.innerHTML = "";
-    map.forEach(entry => addRow(entry.match, entry.profile));
+    map.forEach(entry => addRow(entry.match, entry.titleMatch || "", entry.profile));
   }
 
-  function addRow(match = "", profile = "") {
+  function addRow(match = "", titleMatch = "", profile = "") {
     const container = document.getElementById("entries");
     const row = document.createElement("div");
     row.className = "row";
     row.innerHTML = `
-      <input type="text" placeholder="e.g. ms-teams" value="${match}" class="match-input" />
-      <input type="text" placeholder="e.g. Teams"    value="${profile}" class="profile-input" />
-      <button class="remove-btn" onclick="this.parentElement.remove()">×</button>
+      <input type="text" placeholder="e.g. ms-teams"   value="${match}"      class="match-input" />
+      <input type="text" placeholder="e.g. PowerShell" value="${titleMatch}" class="title-input" />
     `;
+    row.appendChild(buildProfileSelect(profile));
+    const btn = document.createElement("button");
+    btn.className = "remove-btn";
+    btn.textContent = "×";
+    btn.onclick = () => row.remove();
+    row.appendChild(btn);
     container.appendChild(row);
   }
 
@@ -231,10 +290,15 @@
   function collectRows() {
     const rows = document.querySelectorAll(".row");
     return Array.from(rows)
-      .map(r => ({
-        match:   r.querySelector(".match-input").value.trim(),
-        profile: r.querySelector(".profile-input").value.trim(),
-      }))
+      .map(r => {
+        const entry = {
+          match:   r.querySelector(".match-input").value.trim(),
+          profile: r.querySelector(".profile-input").value.trim(),
+        };
+        const t = r.querySelector(".title-input").value.trim();
+        if (t) entry.titleMatch = t;
+        return entry;
+      })
       .filter(e => e.match && e.profile);
   }
 
@@ -253,10 +317,37 @@
     setTimeout(() => { status.textContent = ""; }, 2000);
   }
 
+  // ── Detection result display ─────────────────────────────────────────────
+  function showDetectionResult(r) {
+    lastDetection = r;
+    const matched = r.profile && r.profile !== "(no match)";
+    const profile = matched ? r.profile : "(no match)";
+    const el = document.getElementById("test-result");
+    el.style.display = "block";
+    el.innerHTML =
+      `Process: <strong style="color:#fff">${r.proc || "(none)"}</strong><br>` +
+      `Title:&nbsp;&nbsp; <strong style="color:#aad4f5">${r.title || "(none)"}</strong><br>` +
+      `Profile: <strong style="color:${matched ? "#7cb87c" : "#e07c7c"}">${profile}</strong>`;
+    document.getElementById("add-detection-btn").style.display =
+      r.proc ? "inline-block" : "none";
+  }
+
+  function addFromDetection() {
+    if (!lastDetection?.proc) return;
+    const matched = lastDetection.profile && lastDetection.profile !== "(no match)";
+    const fallback = knownProfiles.find(p => p.toLowerCase().startsWith("default")) || "";
+    addRow(lastDetection.proc, lastDetection.title || "", matched ? lastDetection.profile : fallback);
+    const newRow = document.getElementById("entries").lastElementChild;
+    newRow.scrollIntoView({ behavior: "smooth" });
+    newRow.querySelector(".match-input").focus();
+  }
+
   // ── Test detection ────────────────────────────────────────────────────────
   function testDetection() {
     if (!sdConnection) return;
-    document.getElementById("test-result").style.display = "none";
+    const el = document.getElementById("test-result");
+    el.style.display = "block";
+    el.textContent = "Starting countdown...";
     sdConnection.send(JSON.stringify({
       event:   "sendToPlugin",
       context: actionContext,

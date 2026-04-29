@@ -1,0 +1,32 @@
+version: '3'
+
+vars:
+  PLUGIN_DIR: com.lovato.windowsapps-switcher.sdPlugin
+
+tasks:
+  default:
+    desc: Install dependencies, deploy plugin, and restart StreamDeck
+    deps: [deps]
+    cmds:
+      - powershell.exe -NonInteractive -ExecutionPolicy Bypass -File deploy.ps1 -SkipDeps
+
+  deploy:
+    desc: Deploy plugin and restart StreamDeck (skips npm install)
+    cmds:
+      - powershell.exe -NonInteractive -ExecutionPolicy Bypass -File deploy.ps1 -SkipDeps
+
+  deploy:no-restart:
+    desc: Deploy plugin without restarting StreamDeck
+    cmds:
+      - powershell.exe -NonInteractive -ExecutionPolicy Bypass -File deploy.ps1 -NoRestart
+
+  deps:
+    desc: Install npm dependencies inside the plugin folder
+    dir: '{{.PLUGIN_DIR}}'
+    cmds:
+      - npm install
+
+  restart:
+    desc: Restart the StreamDeck application
+    cmds:
+      - powershell.exe -NonInteractive -ExecutionPolicy Bypass -Command "Stop-Process -Name 'StreamDeck' -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; Start-Process '$env:ProgramFiles\Elgato\StreamDeck\StreamDeck.exe'"
