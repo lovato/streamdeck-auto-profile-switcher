@@ -1,7 +1,7 @@
 version: '3'
 
 vars:
-  PLUGIN_DIR: com.lovato.windowsapps-switcher.sdPlugin
+  PLUGIN_DIR: com.lovato.autoprofileswitcher.sdPlugin
 
 tasks:
   default:

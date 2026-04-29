@@ -1,4 +1,4 @@
-# StreamDeck WindowsApps Profile Switcher
+# StreamDeck Auto Profile Switcher
 
 > **Fixes and extends StreamDeck Smart Profile switching** — adds support for MSIX/WindowsApp packaged apps (Teams, WhatsApp, Windows Terminal) that are invisible to StreamDeck's built-in detection, and unlocks window-title-based profile rules that the built-in feature can never support.
 
@@ -83,7 +83,7 @@ cd streamdeck-windowsapps-plugin
 
 ### Manual installation
 
-1. Copy `com.lovato.windowsapps-switcher.sdPlugin` to `%APPDATA%\Elgato\StreamDeck\Plugins\`
+1. Copy `com.lovato.autoprofileswitcher.sdPlugin` to `%APPDATA%\Elgato\StreamDeck\Plugins\`
 2. Run `npm install` inside the plugin folder
 3. Restart StreamDeck
 
@@ -93,7 +93,7 @@ cd streamdeck-windowsapps-plugin
 
 ### 1. Add the action to your deck
 
-Drag **"WindowsApps Switcher"** from the actions list onto any button on any profile. It only needs to exist somewhere — it runs as a background monitor, not as a button you press.
+Drag **"Auto Profile Switcher"** from the actions list onto any button on any profile. It only needs to exist somewhere — it runs as a background monitor, not as a button you press.
 
 ### 2. Open the configuration panel
 
@@ -164,7 +164,7 @@ A single persistent PowerShell process handles all Win32 API calls — no per-po
 streamdeck-windowsapps-plugin/
 ├── Taskfile.yaml                          # WSL/Linux one-command deploy
 ├── deploy.ps1                             # Windows/WSL deployment script
-└── com.lovato.windowsapps-switcher.sdPlugin/
+└── com.lovato.autoprofileswitcher.sdPlugin/
     ├── manifest.json                      # StreamDeck plugin manifest
     ├── app.js                             # Plugin main process
     ├── package.json

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WindowsApps Switcher</title>
+  <title>Auto Profile Switcher</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -142,7 +142,7 @@
 </head>
 <body>
 
-  <h2>WindowsApps Profile Switcher</h2>
+  <h2>Auto Profile Switcher</h2>
   <p class="description">
     Maps WindowsApps processes to StreamDeck profile names.<br>
     Profile names must match exactly what you named them in StreamDeck.
@@ -206,7 +206,7 @@
         // Request profiles list to populate the dropdowns
         sdConnection.send(JSON.stringify({
           event: "sendToPlugin", context: uuid,
-          action: "com.lovato.windowsapps-switcher.monitor",
+          action: "com.lovato.autoprofileswitcher.monitor",
           payload: { action: "getProfiles" },
         }));
       }
@@ -309,7 +309,7 @@
     sdConnection.send(JSON.stringify({
       event:   "sendToPlugin",
       context: actionContext,
-      action:  "com.lovato.windowsapps-switcher.monitor",
+      action:  "com.lovato.autoprofileswitcher.monitor",
       payload: { action: "saveSettings", settings: { appMap } },
     }));
     const status = document.getElementById("status");
@@ -351,7 +351,7 @@
     sdConnection.send(JSON.stringify({
       event:   "sendToPlugin",
       context: actionContext,
-      action:  "com.lovato.windowsapps-switcher.monitor",
+      action:  "com.lovato.autoprofileswitcher.monitor",
       payload: { action: "testDetection" },
     }));
   }

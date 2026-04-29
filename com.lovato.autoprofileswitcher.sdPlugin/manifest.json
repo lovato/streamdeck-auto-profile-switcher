@@ -1,10 +1,10 @@
 {
   "Author": "Marco Lovato",
   "CodePath": "app.js",
-  "Description": "Automatically switches StreamDeck profiles when Microsoft Teams, WhatsApp, or Windows Terminal (WindowsApps/MSIX packages) become the active window — fixing the Smart Profile detection gap for these apps.",
-  "Name": "WindowsApps Profile Switcher",
+  "Description": "Switches StreamDeck profiles based on the active foreground window. Supports MSIX/WindowsApps (Teams, WhatsApp, Terminal) and window title matching — both impossible with the built-in Smart Profile feature.",
+  "Name": "Auto Profile Switcher",
   "Icon": "icons/plugin",
-  "URL": "https://github.com/lovato/streamdeck-windowsapps-profile-switcher",
+  "URL": "https://github.com/lovato/streamdeck-windowsapps-plugin",
   "Version": "1.0.0",
   "SDKVersion": 2,
   "Software": {
@@ -23,15 +23,15 @@
   "Actions": [
     {
       "Icon": "icons/action",
-      "Name": "WindowsApps Switcher",
+      "Name": "Auto Profile Switcher",
       "States": [
         {
           "Image": "icons/action"
         }
       ],
       "SupportedInMultiActions": false,
-      "Tooltip": "Monitors active window and switches profiles for WindowsApps (Teams, WhatsApp, Terminal)",
-      "UUID": "com.lovato.windowsapps-switcher.monitor",
+      "Tooltip": "Switches profiles based on the active window — supports MSIX apps and window title matching",
+      "UUID": "com.lovato.autoprofileswitcher.monitor",
       "PropertyInspectorPath": "property-inspector/index.html"
     }
   ]

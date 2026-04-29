@@ -1,5 +1,5 @@
 /**
- * StreamDeck WindowsApps Profile Switcher
+ * StreamDeck Auto Profile Switcher
  * =========================================
  * Fixes Smart Profile auto-switching for MSIX/WindowsApp packaged apps
  * (Teams, WhatsApp, Windows Terminal) which are invisible to StreamDeck's
@@ -153,7 +153,7 @@ function getActiveProcessName() {
 
 // ─── ProfilesV3 helpers ────────────────────────────────────────────────────────────────────────────
 const V3_DIR    = path.join(process.env.APPDATA, 'Elgato', 'StreamDeck', 'ProfilesV3');
-const PLUGIN_ID = 'com.lovato.windowsapps-switcher';
+const PLUGIN_ID = 'com.lovato.autoprofileswitcher';
 
 function readManifest(dir) {
   try {
@@ -234,7 +234,7 @@ function sendToPI(payload) {
   send({
     event:   "sendToPropertyInspector",
     context: actionContext,
-    action:  "com.lovato.windowsapps-switcher.monitor",
+    action:  "com.lovato.autoprofileswitcher.monitor",
     payload,
   });
 }

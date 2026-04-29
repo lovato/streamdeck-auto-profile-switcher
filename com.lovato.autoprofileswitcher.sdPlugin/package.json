@@ -1,5 +1,5 @@
 {
-  "name": "com.lovato.windowsapps-switcher",
+  "name": "com.lovato.autoprofileswitcher",
   "version": "1.0.0",
   "description": "StreamDeck plugin to auto-switch profiles for WindowsApps (MSIX) packages",
   "main": "app.js",
