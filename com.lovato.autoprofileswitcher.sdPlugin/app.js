@@ -38,6 +38,7 @@ let ws             = null;
 let deviceId       = null;
 let actionContext  = null;
 let lastProfile    = null;
+let pluginDepth    = 0;   // consecutive plugin-managed profile switches since last unmonitored app
 let appMap         = DEFAULT_APP_MAP;
 let pollTimer      = null;
 let isPollRunning  = false;
@@ -175,19 +176,20 @@ function getProfileNames() {
 }
 
 // ─── Built-in Smart Profile mirror ───────────────────────────────────────────
-// switchToProfile('') only reverts one step in StreamDeck's previous-profile
-// chain — if multiple plugin profiles were visited in sequence, the revert
-// lands on the previous plugin profile, not Default.
-// Fix: own the Default Profile (AppIdentifier="*") so we can call
-// switchToProfile(defaultProfileName) directly, bypassing the chain entirely.
-// All other AppIdentifier profiles are also owned so we handle switching for
-// them (see the cascade-fix problem).
-let builtInMap        = {};  // { processName → profileName }
-let defaultProfileName = '';  // name of the Default Profile (AppIdentifier="*")
+// Reads AppIdentifier from ProfilesV3 manifests so the plugin can handle
+// transitions from plugin-managed profiles (WhatsApp) to built-in-managed
+// profiles (Chrome, Zoom) without losing the Default fallback.
+//
+// AppIdentifier="*" (the Default Profile catch-all) is intentionally excluded:
+// we leave Default Profile unowned so switchToProfile('') always has a
+// non-plugin fallback to revert to.
+//
+// StreamDeck periodically restores AppIdentifier in manifests for running apps,
+// so syncProfileTags is called on a timer to keep the migration applied.
+let builtInMap = {};  // { processName → profileName }
 
 function loadBuiltInProfileMap() {
   const map = {};
-  defaultProfileName = '';
   try {
     for (const dir of fs.readdirSync(V3_DIR).filter(d => d.endsWith('.sdProfile'))) {
       const m = readManifest(dir);
@@ -195,11 +197,7 @@ function loadBuiltInProfileMap() {
       if (m.InstalledByPluginUUID && m.InstalledByPluginUUID !== PLUGIN_ID) continue;
       // AppIdentifier = untagged; PluginSavedAppIdentifier = already owned by us
       const appId = m.AppIdentifier || m.PluginSavedAppIdentifier;
-      if (!appId) continue;
-      if (appId === '*') {
-        if (!defaultProfileName) defaultProfileName = m.Name;
-        continue;  // catch-all — don't add to the process→profile map
-      }
+      if (!appId || appId === '*') continue;  // skip catch-all and empty
       const procName = appId.split(/[/\\]/).pop().replace(/\.exe$/i, '').toLowerCase();
       if (procName && m.Name) map[procName] = m.Name;
     }
@@ -211,7 +209,6 @@ function allTargets() {
   return [...new Set([
     ...appMap.map(e => e.profile).filter(Boolean),
     ...Object.values(builtInMap),
-    ...(defaultProfileName ? [defaultProfileName] : []),
   ])];
 }
 
@@ -338,14 +335,18 @@ async function pollOnce() {
 
     const profile = detectProfile(proc, title);
     if (profile !== lastProfile) {
-      lastProfile = profile;
       if (profile) {
+        pluginDepth = (lastProfile !== null) ? pluginDepth + 1 : 1;
+        lastProfile = profile;
         logMessage(`Detected "${proc}" → switching to profile "${profile}"`);
         switchToProfile(profile);
       } else {
-        // Switch directly to the Default Profile by name so we bypass
-        // StreamDeck's "previous profile" chain (which only goes back one step).
-        switchToProfile(defaultProfileName || '');
+        // Call switchToProfile('') once per depth level so StreamDeck peels
+        // back through any stacked plugin profiles and lands on Default.
+        const releases = Math.max(pluginDepth, 1);
+        pluginDepth = 0;
+        lastProfile = null;
+        for (let i = 0; i < releases; i++) switchToProfile('');
       }
     }
   } finally {
@@ -353,13 +354,23 @@ async function pollOnce() {
   }
 }
 
+let resyncTimer = null;
+
 function startPolling() {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(pollOnce, POLL_INTERVAL_MS);
+  // StreamDeck restores AppIdentifier in manifests for running apps; re-sync
+  // periodically to keep the AppIdentifier→PluginSavedAppIdentifier migration applied.
+  if (resyncTimer) clearInterval(resyncTimer);
+  resyncTimer = setInterval(() => {
+    builtInMap = loadBuiltInProfileMap();
+    syncProfileTags(allTargets());
+  }, 10000);
 }
 
 function stopPolling() {
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  if (pollTimer)  { clearInterval(pollTimer);  pollTimer  = null; }
+  if (resyncTimer){ clearInterval(resyncTimer); resyncTimer = null; }
 }
 
 // ─── Apply settings from global store ────────────────────────────────────────
