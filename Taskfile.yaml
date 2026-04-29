@@ -5,12 +5,18 @@ vars:
 
 tasks:
   default:
-    desc: Install dependencies, deploy plugin, and restart StreamDeck
+    desc: List available tasks
+    silent: true
+    cmds:
+      - task --list
+
+  deploy:
+    desc: Install npm deps, deploy plugin, and restart StreamDeck
     deps: [deps]
     cmds:
       - powershell.exe -NonInteractive -ExecutionPolicy Bypass -File deploy.ps1 -SkipDeps
 
-  deploy:
+  deploy:quick:
     desc: Deploy plugin and restart StreamDeck (skips npm install)
     cmds:
       - powershell.exe -NonInteractive -ExecutionPolicy Bypass -File deploy.ps1 -SkipDeps
@@ -18,7 +24,12 @@ tasks:
   deploy:no-restart:
     desc: Deploy plugin without restarting StreamDeck
     cmds:
-      - powershell.exe -NonInteractive -ExecutionPolicy Bypass -File deploy.ps1 -NoRestart
+      - powershell.exe -NonInteractive -ExecutionPolicy Bypass -File deploy.ps1 -SkipDeps -NoRestart
+
+  uninstall:
+    desc: Untag all plugin-owned profiles and remove plugin from StreamDeck
+    cmds:
+      - powershell.exe -NonInteractive -ExecutionPolicy Bypass -File deploy.ps1 -Uninstall
 
   deps:
     desc: Install npm dependencies inside the plugin folder

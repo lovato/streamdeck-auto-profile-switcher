@@ -174,9 +174,39 @@ function getProfileNames() {
   } catch { return []; }
 }
 
-// Tags only the profiles the plugin needs to switch to; untags everything else
-// so the built-in Smart Profile can manage the rest.
-// Also persists the target list to a file for deploy.ps1 to use on the next deploy.
+// ─── Built-in Smart Profile mirror ───────────────────────────────────────────
+// switchToProfile('') only reverts to Default; it does NOT re-fire the built-in
+// Smart Profile for the currently focused window (the focus event already fired
+// while the plugin profile was active and was discarded).
+// Fix: read AppIdentifier from ProfilesV3 manifests, derive process names, and
+// handle those switches ourselves. Config is read from the existing StreamDeck
+// Smart Profile assignments — no duplication required.
+let builtInMap = {};  // { processName → profileName }
+
+function loadBuiltInProfileMap() {
+  const map = {};
+  try {
+    for (const dir of fs.readdirSync(V3_DIR).filter(d => d.endsWith('.sdProfile'))) {
+      const m = readManifest(dir);
+      if (!m?.AppIdentifier || m.AppIdentifier === '*') continue;
+      if (m.InstalledByPluginUUID && m.InstalledByPluginUUID !== PLUGIN_ID) continue;
+      const procName = m.AppIdentifier.split(/[/\\]/).pop().replace(/\.exe$/i, '').toLowerCase();
+      if (procName && m.Name) map[procName] = m.Name;
+    }
+  } catch { /* non-fatal */ }
+  return map;
+}
+
+function allTargets() {
+  return [...new Set([
+    ...appMap.map(e => e.profile).filter(Boolean),
+    ...Object.values(builtInMap),
+  ])];
+}
+
+// Tags every profile the plugin needs to switch to (app-map targets + built-in
+// Smart Profile targets derived from AppIdentifier). Untags any we previously
+// owned but no longer need. Persists the list to profiles.json for deploy.ps1.
 const DATA_DIR   = path.join(process.env.APPDATA, 'Elgato', 'StreamDeck', 'Data', PLUGIN_ID);
 const TAGS_FILE  = path.join(DATA_DIR, 'profiles.json');
 
@@ -225,6 +255,8 @@ function detectProfile(proc, title = '') {
     if (entry.titleMatch) continue;
     if (proc.includes(entry.match.toLowerCase())) return entry.profile;
   }
+  // Pass 3 — built-in Smart Profile apps (derived from AppIdentifier in manifests)
+  if (builtInMap[proc]) return builtInMap[proc];
   return null;
 }
 
@@ -287,7 +319,7 @@ async function pollOnce() {
         logMessage(`Detected "${proc}" → switching to profile "${profile}"`);
         switchToProfile(profile);
       } else {
-        switchToProfile('');  // release back to StreamDeck's built-in Smart Profile
+        switchToProfile('');  // no match anywhere — fall back to Default profile
       }
     }
   } finally {
@@ -310,9 +342,9 @@ function applySettings(settings) {
   appMap = (Array.isArray(globalSettings.appMap) && globalSettings.appMap.length > 0)
     ? globalSettings.appMap
     : DEFAULT_APP_MAP;
-  if (appMap.length > 0) logMessage(`Loaded app map with ${appMap.length} entries`);
-  const targets = [...new Set(appMap.map(e => e.profile).filter(Boolean))];
-  syncProfileTags(targets);
+  builtInMap = loadBuiltInProfileMap();
+  if (appMap.length > 0) logMessage(`Loaded app map: ${appMap.length} custom rules, ${Object.keys(builtInMap).length} built-in Smart Profile apps`);
+  syncProfileTags(allTargets());
 }
 
 // ─── Test detection with countdown ───────────────────────────────────────────
@@ -345,7 +377,8 @@ function connect() {
   ws = new WebSocket(`ws://localhost:${PORT}`);
 
   ws.on("open", () => {
-    syncProfileTags([...new Set(appMap.map(e => e.profile).filter(Boolean))]);
+    builtInMap = loadBuiltInProfileMap();
+    syncProfileTags(allTargets());
     send({ event: REGISTER_EVT, uuid: PLUGIN_UUID });
     getGlobalSettings();
   });
@@ -374,7 +407,8 @@ function connect() {
 
       case "propertyInspectorDidAppear":
         settingsOpen = true;
-        syncProfileTags([...new Set(appMap.map(e => e.profile).filter(Boolean))]);
+        builtInMap = loadBuiltInProfileMap();
+        syncProfileTags(allTargets());
         sendToPI({ action: "profilesList", profiles: getProfileNames() });
         break;
 

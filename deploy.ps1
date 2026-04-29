@@ -1,32 +1,97 @@
 <#
 .SYNOPSIS
-    Deploy the Stream Deck Auto Profile Switcher plugin.
+    Deploy or uninstall the Stream Deck Auto Profile Switcher plugin.
 
 .DESCRIPTION
-    Installs npm dependencies, stops StreamDeck, deploys the plugin, tags
-    profiles as plugin-owned, and restarts StreamDeck.
+    Install:   stops StreamDeck, deploys the plugin, syncs profile ownership, restarts.
+    Uninstall: stops StreamDeck, untags all plugin-owned profiles, removes plugin and data dirs, restarts.
 
     Works on native Windows and from WSL:
         Windows:  .\deploy.ps1
         WSL:      powershell.exe -File deploy.ps1
 
 .PARAMETER NoRestart
-    Skip restarting StreamDeck after deployment.
+    Skip restarting StreamDeck after the operation.
 
 .PARAMETER SkipDeps
-    Skip running npm install (useful when deps were already installed).
+    Skip running npm install (install only).
+
+.PARAMETER Uninstall
+    Untag all plugin-owned profiles and remove the plugin from StreamDeck.
 #>
 param(
     [switch]$NoRestart,
-    [switch]$SkipDeps
+    [switch]$SkipDeps,
+    [switch]$Uninstall
 )
 
 $ErrorActionPreference = "Stop"
 
+$PluginUUID    = "com.lovato.autoprofileswitcher"
+$LegacyUUID    = "com.lovato.windowsapps-switcher"
 $PluginDir     = "com.lovato.autoprofileswitcher.sdPlugin"
 $PluginsPath   = Join-Path $env:APPDATA "Elgato\StreamDeck\Plugins"
+$ProfilesDir   = Join-Path $env:APPDATA "Elgato\StreamDeck\ProfilesV3"
+$DataDir       = Join-Path $env:APPDATA "Elgato\StreamDeck\Data\$PluginUUID"
 $StreamDeckExe = Join-Path $env:ProgramFiles "Elgato\StreamDeck\StreamDeck.exe"
+$utf8NoBom     = New-Object System.Text.UTF8Encoding $false
 
+function Untag-AllPluginProfiles {
+    if (-not (Test-Path $ProfilesDir)) { return }
+    foreach ($profileDir in (Get-ChildItem $ProfilesDir -Filter "*.sdProfile")) {
+        $mPath = Join-Path $profileDir.FullName "manifest.json"
+        if (-not (Test-Path $mPath)) { continue }
+        $raw   = [System.IO.File]::ReadAllText($mPath).TrimStart([char]0xFEFF)
+        $m     = $raw | ConvertFrom-Json
+        if ($m.InstalledByPluginUUID -ne $PluginUUID -and $m.InstalledByPluginUUID -ne $LegacyUUID) { continue }
+        $clean = [ordered]@{}
+        $m.PSObject.Properties | Where-Object { $_.Name -notin @("InstalledByPluginUUID","PreconfiguredName","ReadOnly") } |
+            ForEach-Object { $clean[$_.Name] = $_.Value }
+        [System.IO.File]::WriteAllText($mPath, ([pscustomobject]$clean | ConvertTo-Json -Compress -Depth 10), $utf8NoBom)
+        Write-Host "    Untagged: '$($m.Name)'"
+    }
+}
+
+# ─── Uninstall ────────────────────────────────────────────────────────────────
+if ($Uninstall) {
+    Write-Host "==> Stopping StreamDeck..."
+    Stop-Process -Name "StreamDeck" -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+
+    Write-Host "==> Untagging plugin-owned profiles..."
+    Untag-AllPluginProfiles
+
+    Write-Host "==> Removing plugin directory..."
+    $installedDir = Join-Path $PluginsPath $PluginDir
+    if (Test-Path $installedDir) {
+        Remove-Item -Recurse -Force $installedDir
+        Write-Host "    Removed: $installedDir"
+    } else {
+        Write-Host "    Not found: $installedDir"
+    }
+
+    Write-Host "==> Removing data directory..."
+    if (Test-Path $DataDir) {
+        Remove-Item -Recurse -Force $DataDir
+        Write-Host "    Removed: $DataDir"
+    } else {
+        Write-Host "    Not found: $DataDir"
+    }
+
+    if (-not $NoRestart) {
+        Write-Host "==> Starting StreamDeck..."
+        if (Test-Path $StreamDeckExe) {
+            Start-Process $StreamDeckExe
+            Write-Host "    StreamDeck started."
+        } else {
+            Write-Warning "StreamDeck.exe not found at: $StreamDeckExe"
+        }
+    }
+    Write-Host "==> Uninstall complete."
+    return
+}
+
+# ─── Install / Deploy ─────────────────────────────────────────────────────────
 if (-not $SkipDeps) {
     Write-Host "==> Installing dependencies..."
     Push-Location $PluginDir
@@ -34,7 +99,6 @@ if (-not $SkipDeps) {
     Pop-Location
 }
 
-# Stop StreamDeck before touching the plugins directory
 Write-Host "==> Stopping StreamDeck..."
 Stop-Process -Name "StreamDeck" -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
@@ -43,7 +107,6 @@ Write-Host "==> Deploying to $PluginsPath ..."
 if (-not (Test-Path $PluginsPath)) {
     New-Item -ItemType Directory -Path $PluginsPath -Force | Out-Null
 }
-# Remove old plugin directory if present from before the rename
 $OldPluginDir = Join-Path $PluginsPath "com.lovato.windowsapps-switcher.sdPlugin"
 if (Test-Path $OldPluginDir) {
     Remove-Item -Recurse -Force $OldPluginDir
@@ -53,19 +116,13 @@ Copy-Item -Path $PluginDir -Destination $PluginsPath -Recurse -Force
 Write-Host "    Deployed: $PluginsPath\$PluginDir"
 
 Write-Host "==> Syncing profile ownership..."
-$ProfilesDir = Join-Path $env:APPDATA "Elgato\StreamDeck\ProfilesV3"
-$PluginUUID  = "com.lovato.autoprofileswitcher"
-$LegacyUUID  = "com.lovato.windowsapps-switcher"
-$utf8NoBom   = New-Object System.Text.UTF8Encoding $false
-
-# Read the target profiles saved by the plugin (profiles the app map switches to)
-$TagsFile    = Join-Path $env:APPDATA "Elgato\StreamDeck\Data\$PluginUUID\profiles.json"
+$TagsFile    = Join-Path $DataDir "profiles.json"
 $TagProfiles = @()
 if (Test-Path $TagsFile) {
     $TagProfiles = Get-Content $TagsFile -Raw | ConvertFrom-Json
     Write-Host "    Targets from saved app map: $($TagProfiles -join ', ')"
 } else {
-    Write-Host "    No saved app map yet - no profiles tagged (configure rules in the PI after first run)"
+    Write-Host "    No saved app map yet - profiles will be tagged on first run"
 }
 
 if (Test-Path $ProfilesDir) {
@@ -85,19 +142,17 @@ if (Test-Path $ProfilesDir) {
             [System.IO.File]::WriteAllText($mPath, ($m | ConvertTo-Json -Compress -Depth 10), $utf8NoBom)
             Write-Host "    Tagged:   '$($m.Name)'"
         } elseif ($shouldTag -and $isOurs) {
-            # Already ours — update UUID if it was the legacy one
             if ($owner -eq $LegacyUUID) {
                 $m | Add-Member -NotePropertyName "InstalledByPluginUUID" -NotePropertyValue $PluginUUID -Force
                 [System.IO.File]::WriteAllText($mPath, ($m | ConvertTo-Json -Compress -Depth 10), $utf8NoBom)
                 Write-Host "    Migrated: '$($m.Name)'"
             }
         } elseif ($isOurs -and -not $shouldTag) {
-            # Untag - no longer in app map, let built-in Smart Profile handle it
             $clean = [ordered]@{}
             $m.PSObject.Properties | Where-Object { $_.Name -notin @("InstalledByPluginUUID","PreconfiguredName","ReadOnly") } |
                 ForEach-Object { $clean[$_.Name] = $_.Value }
             [System.IO.File]::WriteAllText($mPath, ([pscustomobject]$clean | ConvertTo-Json -Compress -Depth 10), $utf8NoBom)
-            Write-Host "    Untagged: '$($m.Name)' (returned to built-in Smart Profile)"
+            Write-Host "    Untagged: '$($m.Name)' (no longer in app map)"
         }
     }
 }
