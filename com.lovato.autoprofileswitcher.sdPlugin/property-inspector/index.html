@@ -181,11 +181,7 @@
   let knownProfiles  = [];
   let lastDetection  = null;
 
-  const DEFAULT_MAP = [
-    { match: "ms-teams",        profile: "Teams"    },
-    { match: "whatsapp",        profile: "WhatsApp" },
-    { match: "windowsterminal", profile: "Terminal" },
-  ];
+  const DEFAULT_MAP = [];
 
   window.connectElgatoStreamDeckSocket = function(port, uuid, registerEvent, info, actionInfo) {
     actionContext = uuid;

@@ -31,11 +31,7 @@ const POLL_INTERVAL_MS   = 150;
 const STABLE_POLLS       = 2;   // require 2 consecutive detections (~300ms) before switching
 const TEST_DELAY_SECONDS = 3;
 
-const DEFAULT_APP_MAP = [
-  { match: "ms-teams",        profile: "Teams"    },
-  { match: "whatsapp",        profile: "WhatsApp" },
-  { match: "windowsterminal", profile: "Terminal" },
-];
+const DEFAULT_APP_MAP = [];
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let ws             = null;
