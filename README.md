@@ -1,34 +1,51 @@
 # StreamDeck WindowsApps Profile Switcher
 
-> **Fixes StreamDeck Smart Profile auto-switching for MSIX/WindowsApp packaged apps** — including Microsoft Teams, WhatsApp, and Windows Terminal — which are invisible to StreamDeck's built-in app detection.
+> **Fixes and extends StreamDeck Smart Profile switching** — adds support for MSIX/WindowsApp packaged apps (Teams, WhatsApp, Windows Terminal) that are invisible to StreamDeck's built-in detection, and unlocks window-title-based profile rules that the built-in feature can never support.
 
 ---
 
 ## The Problem
 
-Elgato's StreamDeck software detects active applications to auto-switch Smart Profiles by monitoring Win32 processes. When Microsoft began shipping **Teams**, **WhatsApp**, and **Windows Terminal** as `WindowsApps` packages (MSIX/UWP-style), StreamDeck lost the ability to detect them. [Elgato's own docs confirm Smart Profiles don't work with UWP/packaged apps](https://help.elgato.com/hc/en-us/articles/360053419071).
+Elgato's StreamDeck detects active applications by monitoring Win32 process executable paths. When Microsoft began shipping **Teams**, **WhatsApp**, and **Windows Terminal** as `WindowsApps` (MSIX/UWP) packages, StreamDeck lost the ability to detect them — [Elgato's own docs confirm Smart Profiles don't work with packaged apps](https://help.elgato.com/hc/en-us/articles/360053419071).
 
-This repo contains a **native StreamDeck plugin** (Node.js) that solves this at the right level — by polling the active foreground window via Win32 API (through PowerShell) and calling `switchToProfile` directly over the StreamDeck WebSocket protocol.
+This plugin solves that, and goes further.
 
 ---
 
-## How It Works
+## Features
 
-```
-[Plugin: app.js]
-      │
-      │  polls Win32 GetForegroundWindow() every 500ms via PowerShell
-      ▼
- Detects Teams / WhatsApp / Terminal (or any custom app you configure)
-      │
-      │  sends switchToProfile over WebSocket
-      ▼
-[StreamDeck software]
-      │
-      │  switches to the correct profile
-      ▼
- Your deck shows the right layout ✓
-```
+### MSIX / WindowsApps detection
+Switch profiles when Teams, WhatsApp, Windows Terminal, or any other MSIX-packaged app comes into focus. Uses Win32 `GetForegroundWindow` directly — the same mechanism Windows itself uses — so it works regardless of how the app was packaged.
+
+### Window title matching
+Go beyond process names. Match on the **window title** of the focused app to create context-specific profiles:
+
+| Process | Title contains | Profile |
+|---|---|---|
+| `windowsterminal` | `PowerShell` | PowerShell |
+| `windowsterminal` | `Ubuntu` | WSL |
+| `windowsterminal` | *(anything)* | Terminal |
+| `ms-teams` | `Project X` | Teams — Project X |
+| `ms-teams` | *(anything)* | Teams |
+
+Title-specific rules always win over process-only rules, giving you a natural fallback chain.
+
+### Hybrid mode — works alongside built-in Smart Profiles
+The plugin doesn't replace StreamDeck's built-in Smart Profile feature. It **collaborates** with it:
+
+- **Plugin handles:** MSIX apps and title-based rules
+- **Built-in handles:** everything else (Chrome, VSCode, Zoom, games, etc.)
+
+When the focused app doesn't match any rule, the plugin explicitly releases control so the built-in Smart Profile can take over. You keep all your existing Smart Profile configuration and gain new capabilities on top.
+
+### Live profile dropdown
+The Profile field in the configuration UI is a dropdown populated from your actual StreamDeck profiles — no typos, no guessing exact names. New profiles you create are picked up automatically the next time you open the configuration panel.
+
+### Test detection
+A built-in tool lets you identify the exact process name and window title of any focused app without leaving StreamDeck. Run it, switch to the target window, and the result stays visible for you to copy from. A one-click **"+ Add to app list"** button pre-fills a new rule from the detection result.
+
+### Safe to configure
+Auto-switching is paused while the configuration panel is open. Clicking on matched apps won't close the panel mid-configuration.
 
 ---
 
@@ -36,70 +53,132 @@ This repo contains a **native StreamDeck plugin** (Node.js) that solves this at 
 
 - **Windows 10/11**
 - **StreamDeck software 6.0+**
-- **Node.js 20+** — [download here](https://nodejs.org/)
+- **Node.js 20+** (bundled with StreamDeck or [download here](https://nodejs.org/))
 
 ---
 
 ## Installation
 
-### Step 1 — Install dependencies
+### Option A — WSL or Linux (recommended for development)
 
 ```bash
-cd com.lovato.windowsapps-switcher.sdPlugin
-npm install
+# Install task runner once
+brew install go-task
+
+# Clone and deploy
+git clone https://github.com/lovato/streamdeck-windowsapps-plugin
+cd streamdeck-windowsapps-plugin
+task
 ```
 
-### Step 2 — Install the plugin into StreamDeck
+`task` installs npm dependencies, copies the plugin to StreamDeck's plugins directory, tags your profiles, and restarts StreamDeck — all in one step.
 
-Copy the entire `com.lovato.windowsapps-switcher.sdPlugin` folder to your StreamDeck plugins directory:
+### Option B — Native Windows (PowerShell)
 
-```
-%APPDATA%\Elgato\StreamDeck\Plugins\
-```
-
-So the final path looks like:
-
-```
-%APPDATA%\Elgato\StreamDeck\Plugins\com.lovato.windowsapps-switcher.sdPlugin\
+```powershell
+git clone https://github.com/lovato/streamdeck-windowsapps-plugin
+cd streamdeck-windowsapps-plugin
+.\deploy.ps1
 ```
 
-### Step 3 — Restart StreamDeck software
+### Manual installation
 
-Quit and reopen the StreamDeck app. The plugin will appear under **Custom** actions in the sidebar.
-
-### Step 4 — Add the action to any profile
-
-Drag the **"WindowsApps Switcher"** action onto any button on any profile. It only needs to exist somewhere — it doesn't matter which profile or which button. The monitoring runs in the background.
-
-### Step 5 — Name your profiles correctly
-
-The plugin switches by profile name. Make sure your profiles in StreamDeck Settings are named:
-
-| App              | Default profile name |
-|------------------|----------------------|
-| Microsoft Teams  | `Teams`              |
-| WhatsApp         | `WhatsApp`           |
-| Windows Terminal | `Terminal`           |
-
-You can rename them — just update the mapping in the Property Inspector.
-
-### Step 6 — Configure (optional)
-
-Click the action button you placed in Step 4 to open the **Property Inspector**. There you can:
-
-- Change which process name maps to which profile
-- Add more apps
-- Click **Test detection** to see what process is currently active
+1. Copy `com.lovato.windowsapps-switcher.sdPlugin` to `%APPDATA%\Elgato\StreamDeck\Plugins\`
+2. Run `npm install` inside the plugin folder
+3. Restart StreamDeck
 
 ---
 
-## Finding the correct process name
+## Setup
 
-If a profile isn't switching, the process name on your system might differ (especially after a Teams or WhatsApp update).
+### 1. Add the action to your deck
 
-**Easiest way:** focus the app you want to detect, then click **"Test detection"** in the Property Inspector. It will show you the exact process name the plugin sees.
+Drag **"WindowsApps Switcher"** from the actions list onto any button on any profile. It only needs to exist somewhere — it runs as a background monitor, not as a button you press.
 
-**Manual way (PowerShell):**
+### 2. Open the configuration panel
+
+Click the button you just placed. The configuration panel opens on the right.
+
+### 3. Configure your rules
+
+Each row maps a focused window to a StreamDeck profile:
+
+| Column | Description |
+|---|---|
+| **Process** | Partial match against the process name (case-insensitive). Use **Test detection** to find this. |
+| **Title match** | Optional partial match against the window title. Leave blank to match any window from that process. |
+| **Profile** | Dropdown of your actual StreamDeck profiles. |
+
+Default rules (edit or remove as needed):
+
+| Process | Title | Profile |
+|---|---|---|
+| `ms-teams` | | `Teams` |
+| `whatsapp` | | `WhatsApp` |
+| `windowsterminal` | | `Terminal` |
+
+### 4. Use Test detection to find process names
+
+1. Click **Test detection** in the configuration panel
+2. You have 3 seconds — switch to the app you want to match
+3. The panel shows the **process name** and **window title** of that app
+4. Click **+ Add to app list** to create a rule from the result, then edit as needed
+
+### 5. Save
+
+Click **Save**. Switching starts immediately — no restart required.
+
+---
+
+## How it works
+
+```
+StreamDeck starts
+       │
+       ▼
+Plugin connects via WebSocket
+       │
+       ├─ Tags all your profiles as plugin-owned (required for switchToProfile)
+       ├─ Loads your configured rules
+       └─ Starts polling every 150ms
+              │
+              ▼
+       GetForegroundWindow() ──► GetWindowThreadProcessId() ──► process name
+                                                              └─► GetWindowText()  ──► window title
+              │
+              ▼
+       Match against rules (title-specific first, then process-only)
+              │
+              ├─ Match found ──► switchToProfile("ProfileName")
+              │
+              └─ No match    ──► switchToProfile("") ── releases to built-in Smart Profile
+```
+
+A single persistent PowerShell process handles all Win32 API calls — no per-poll `powershell.exe` spawning overhead.
+
+---
+
+## Project structure
+
+```
+streamdeck-windowsapps-plugin/
+├── Taskfile.yaml                          # WSL/Linux one-command deploy
+├── deploy.ps1                             # Windows/WSL deployment script
+└── com.lovato.windowsapps-switcher.sdPlugin/
+    ├── manifest.json                      # StreamDeck plugin manifest
+    ├── app.js                             # Plugin main process
+    ├── package.json
+    └── property-inspector/
+        └── index.html                     # Configuration UI
+```
+
+---
+
+## Adding rules for other apps
+
+Run **Test detection**, focus the target app, and the process name and window title are shown. Click **+ Add to app list**, adjust if needed, and save.
+
+For apps not visible in the test (background services, etc.), use PowerShell directly:
 
 ```powershell
 Get-Process | Where-Object { $_.MainWindowTitle -ne "" } | Select-Object Name, MainWindowTitle | Sort-Object Name
@@ -107,23 +186,11 @@ Get-Process | Where-Object { $_.MainWindowTitle -ne "" } | Select-Object Name, M
 
 ---
 
-## Project Structure
+## Why not just use Smart Profiles?
 
-```
-com.lovato.windowsapps-switcher.sdPlugin/
-├── manifest.json              # StreamDeck plugin manifest
-├── app.js                     # Plugin main process (Node.js + WebSocket)
-├── package.json               # npm dependencies (ws)
-├── property-inspector/
-│   └── index.html             # Configuration UI shown in StreamDeck
-└── icons/                     # Plugin icons (add your own PNGs here)
-```
+Smart Profiles match apps by executable path. MSIX apps run from `C:\Program Files\WindowsApps\<package>\`, a protected directory that changes path on every app update, making reliable matching impossible. This plugin uses `GetForegroundWindow()` → process name, which is stable across updates.
 
----
-
-## Why Not Use Smart Profiles?
-
-Because they [officially don't support UWP/packaged apps](https://help.elgato.com/hc/en-us/articles/360053419071-Elgato-Stream-Deck-Smart-Profiles). Microsoft's move to distribute Teams, WhatsApp, and Terminal as `WindowsApps` packages made them invisible to StreamDeck's process monitor. This plugin solves that at the OS level using the Win32 `GetForegroundWindow` API.
+Window title matching is impossible in Smart Profiles entirely — it's a process-path-only feature.
 
 ---
 

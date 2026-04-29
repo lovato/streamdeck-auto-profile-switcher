@@ -151,22 +151,42 @@ function getActiveProcessName() {
   return getActiveWindowInfo().then(({ proc }) => proc);
 }
 
-// ─── Read installed profile names from disk ───────────────────────────────────
+// ─── ProfilesV3 helpers ────────────────────────────────────────────────────────────────────────────
+const V3_DIR    = path.join(process.env.APPDATA, 'Elgato', 'StreamDeck', 'ProfilesV3');
+const PLUGIN_ID = 'com.lovato.windowsapps-switcher';
+
+function readManifest(dir) {
+  try {
+    const raw = fs.readFileSync(path.join(V3_DIR, dir, 'manifest.json'), 'utf8')
+      .replace(/^﻿/, '');
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+
 function getProfileNames() {
   try {
-    const v3 = path.join(process.env.APPDATA, 'Elgato', 'StreamDeck', 'ProfilesV3');
-    const names = fs.readdirSync(v3)
+    const names = fs.readdirSync(V3_DIR)
       .filter(d => d.endsWith('.sdProfile'))
-      .map(d => {
-        try {
-          const raw = fs.readFileSync(path.join(v3, d, 'manifest.json'), 'utf8')
-            .replace(/^\uFEFF/, '');  // strip UTF-8 BOM if present
-          return JSON.parse(raw).Name || null;
-        } catch { return null; }
-      })
+      .map(d => readManifest(d)?.Name || null)
       .filter(Boolean);
     return [...new Set(names)].sort((a, b) => a.localeCompare(b));
   } catch { return []; }
+}
+
+function tagNewProfiles() {
+  try {
+    for (const dir of fs.readdirSync(V3_DIR).filter(d => d.endsWith('.sdProfile'))) {
+      const mPath = path.join(V3_DIR, dir, 'manifest.json');
+      const m = readManifest(dir);
+      if (!m) continue;
+      if (m.InstalledByPluginUUID && m.InstalledByPluginUUID !== PLUGIN_ID) continue;
+      if (m.InstalledByPluginUUID === PLUGIN_ID && m.PreconfiguredName && m.ReadOnly === false) continue;
+      m.InstalledByPluginUUID = PLUGIN_ID;
+      m.PreconfiguredName     = m.Name;
+      m.ReadOnly              = false;
+      fs.writeFileSync(mPath, JSON.stringify(m), { encoding: 'utf8' });
+    }
+  } catch { /* non-fatal */ }
 }
 
 // ─── Profile detection ────────────────────────────────────────────────────────
@@ -299,6 +319,7 @@ function connect() {
   ws = new WebSocket(`ws://localhost:${PORT}`);
 
   ws.on("open", () => {
+    tagNewProfiles();
     send({ event: REGISTER_EVT, uuid: PLUGIN_UUID });
     getGlobalSettings();
   });
@@ -327,6 +348,7 @@ function connect() {
 
       case "propertyInspectorDidAppear":
         settingsOpen = true;
+        tagNewProfiles();
         sendToPI({ action: "profilesList", profiles: getProfileNames() });
         break;
 
