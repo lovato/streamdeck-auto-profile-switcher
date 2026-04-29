@@ -268,6 +268,7 @@ async function pollOnce() {
       stableCount = 1;
     }
     if (stableCount < STABLE_POLLS) return;
+    if (proc === 'streamdeck') return;  // settings window in focus — stay put
 
     const profile = detectProfile(proc, title);
     if (profile !== lastProfile) {
