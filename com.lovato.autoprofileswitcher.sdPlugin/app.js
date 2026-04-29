@@ -188,9 +188,12 @@ function loadBuiltInProfileMap() {
   try {
     for (const dir of fs.readdirSync(V3_DIR).filter(d => d.endsWith('.sdProfile'))) {
       const m = readManifest(dir);
-      if (!m?.AppIdentifier || m.AppIdentifier === '*') continue;
+      if (!m) continue;
       if (m.InstalledByPluginUUID && m.InstalledByPluginUUID !== PLUGIN_ID) continue;
-      const procName = m.AppIdentifier.split(/[/\\]/).pop().replace(/\.exe$/i, '').toLowerCase();
+      // AppIdentifier = untagged profile; PluginSavedAppIdentifier = already tagged by us
+      const appId = m.AppIdentifier || m.PluginSavedAppIdentifier;
+      if (!appId || appId === '*') continue;
+      const procName = appId.split(/[/\\]/).pop().replace(/\.exe$/i, '').toLowerCase();
       if (procName && m.Name) map[procName] = m.Name;
     }
   } catch { /* non-fatal */ }
@@ -223,16 +226,28 @@ function syncProfileTags(targets) {
       if (!m) continue;
       const isOurs    = m.InstalledByPluginUUID === PLUGIN_ID;
       const shouldTag = targetSet.has(m.Name);
+      const PLUGIN_KEYS = ['InstalledByPluginUUID', 'PreconfiguredName', 'ReadOnly', 'PluginSavedAppIdentifier'];
       if (shouldTag && !isOurs) {
         if (m.InstalledByPluginUUID) continue;  // owned by another plugin
+        // Move AppIdentifier out of the manifest so StreamDeck won't overwrite our tag
+        if (m.AppIdentifier && m.AppIdentifier !== '*') {
+          m.PluginSavedAppIdentifier = m.AppIdentifier;
+          delete m.AppIdentifier;
+        }
         m.InstalledByPluginUUID = PLUGIN_ID;
         m.PreconfiguredName     = m.Name;
         m.ReadOnly              = false;
         fs.writeFileSync(mPath, JSON.stringify(m), { encoding: 'utf8' });
+      } else if (isOurs && shouldTag && m.AppIdentifier && m.AppIdentifier !== '*') {
+        // Migration: already tagged but AppIdentifier wasn't moved yet — fix it now
+        m.PluginSavedAppIdentifier = m.AppIdentifier;
+        delete m.AppIdentifier;
+        fs.writeFileSync(mPath, JSON.stringify(m), { encoding: 'utf8' });
       } else if (isOurs && !shouldTag) {
         const clean = Object.fromEntries(
-          Object.entries(m).filter(([k]) => !['InstalledByPluginUUID','PreconfiguredName','ReadOnly'].includes(k))
+          Object.entries(m).filter(([k]) => !PLUGIN_KEYS.includes(k))
         );
+        if (m.PluginSavedAppIdentifier) clean.AppIdentifier = m.PluginSavedAppIdentifier;
         fs.writeFileSync(mPath, JSON.stringify(clean), { encoding: 'utf8' });
       }
     }
@@ -378,7 +393,8 @@ function connect() {
 
   ws.on("open", () => {
     builtInMap = loadBuiltInProfileMap();
-    syncProfileTags(allTargets());
+    // Don't syncProfileTags here — appMap is empty until didReceiveGlobalSettings.
+    // applySettings() will do the full sync once settings are loaded.
     send({ event: REGISTER_EVT, uuid: PLUGIN_UUID });
     getGlobalSettings();
   });

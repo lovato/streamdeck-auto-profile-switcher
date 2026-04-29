@@ -38,6 +38,7 @@ $utf8NoBom     = New-Object System.Text.UTF8Encoding $false
 
 function Untag-AllPluginProfiles {
     if (-not (Test-Path $ProfilesDir)) { return }
+    $removeKeys = @("InstalledByPluginUUID","PreconfiguredName","ReadOnly","PluginSavedAppIdentifier")
     foreach ($profileDir in (Get-ChildItem $ProfilesDir -Filter "*.sdProfile")) {
         $mPath = Join-Path $profileDir.FullName "manifest.json"
         if (-not (Test-Path $mPath)) { continue }
@@ -45,8 +46,10 @@ function Untag-AllPluginProfiles {
         $m     = $raw | ConvertFrom-Json
         if ($m.InstalledByPluginUUID -ne $PluginUUID -and $m.InstalledByPluginUUID -ne $LegacyUUID) { continue }
         $clean = [ordered]@{}
-        $m.PSObject.Properties | Where-Object { $_.Name -notin @("InstalledByPluginUUID","PreconfiguredName","ReadOnly") } |
+        $m.PSObject.Properties | Where-Object { $_.Name -notin $removeKeys } |
             ForEach-Object { $clean[$_.Name] = $_.Value }
+        # Restore AppIdentifier that was saved when the profile was tagged
+        if ($m.PluginSavedAppIdentifier) { $clean["AppIdentifier"] = $m.PluginSavedAppIdentifier }
         [System.IO.File]::WriteAllText($mPath, ([pscustomobject]$clean | ConvertTo-Json -Compress -Depth 10), $utf8NoBom)
         Write-Host "    Untagged: '$($m.Name)'"
     }
@@ -148,9 +151,11 @@ if (Test-Path $ProfilesDir) {
                 Write-Host "    Migrated: '$($m.Name)'"
             }
         } elseif ($isOurs -and -not $shouldTag) {
+            $removeKeys = @("InstalledByPluginUUID","PreconfiguredName","ReadOnly","PluginSavedAppIdentifier")
             $clean = [ordered]@{}
-            $m.PSObject.Properties | Where-Object { $_.Name -notin @("InstalledByPluginUUID","PreconfiguredName","ReadOnly") } |
+            $m.PSObject.Properties | Where-Object { $_.Name -notin $removeKeys } |
                 ForEach-Object { $clean[$_.Name] = $_.Value }
+            if ($m.PluginSavedAppIdentifier) { $clean["AppIdentifier"] = $m.PluginSavedAppIdentifier }
             [System.IO.File]::WriteAllText($mPath, ([pscustomobject]$clean | ConvertTo-Json -Compress -Depth 10), $utf8NoBom)
             Write-Host "    Untagged: '$($m.Name)' (no longer in app map)"
         }
