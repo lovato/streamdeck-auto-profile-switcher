@@ -66,7 +66,7 @@ Auto-switching is paused while the configuration panel is open. Clicking on matc
 brew install go-task
 
 # Clone and deploy
-git clone https://github.com/lovato/streamdeck-windowsapps-plugin
+git clone https://github.com/lovato/streamdeck-auto-profile-switcher
 cd streamdeck-windowsapps-plugin
 task
 ```
@@ -76,7 +76,7 @@ task
 ### Option B — Native Windows (PowerShell)
 
 ```powershell
-git clone https://github.com/lovato/streamdeck-windowsapps-plugin
+git clone https://github.com/lovato/streamdeck-auto-profile-switcher
 cd streamdeck-windowsapps-plugin
 .\deploy.ps1
 ```

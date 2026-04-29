@@ -4,7 +4,7 @@
   "Description": "Switches StreamDeck profiles based on the active foreground window. Supports MSIX/WindowsApps (Teams, WhatsApp, Terminal) and window title matching — both impossible with the built-in Smart Profile feature.",
   "Name": "Auto Profile Switcher",
   "Icon": "icons/plugin",
-  "URL": "https://github.com/lovato/streamdeck-windowsapps-plugin",
+  "URL": "https://github.com/lovato/streamdeck-auto-profile-switcher",
   "Version": "1.0.0",
   "SDKVersion": 2,
   "Software": {
