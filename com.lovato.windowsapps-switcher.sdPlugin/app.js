@@ -240,6 +240,8 @@ async function pollOnce() {
       if (profile) {
         logMessage(`Detected "${proc}" → switching to profile "${profile}"`);
         switchToProfile(profile);
+      } else {
+        switchToProfile('');  // release back to StreamDeck's built-in Smart Profile
       }
     }
   } finally {
