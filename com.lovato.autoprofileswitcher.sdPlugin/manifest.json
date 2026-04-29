@@ -26,7 +26,8 @@
       "Name": "Auto Profile Switcher",
       "States": [
         {
-          "Image": "icons/action"
+          "Image": "icons/action",
+          "Title": "Auto Profile Switcher"
         }
       ],
       "SupportedInMultiActions": false,
