@@ -169,18 +169,37 @@ function getProfileNames() {
   } catch { return []; }
 }
 
-function tagNewProfiles() {
+// Tags only the profiles the plugin needs to switch to; untags everything else
+// so the built-in Smart Profile can manage the rest.
+// Also persists the target list to a file for deploy.ps1 to use on the next deploy.
+const DATA_DIR   = path.join(process.env.APPDATA, 'Elgato', 'StreamDeck', 'Data', PLUGIN_ID);
+const TAGS_FILE  = path.join(DATA_DIR, 'profiles.json');
+
+function syncProfileTags(targets) {
+  const targetSet = new Set(targets);
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(TAGS_FILE, JSON.stringify([...targetSet]), { encoding: 'utf8' });
+  } catch { /* non-fatal */ }
   try {
     for (const dir of fs.readdirSync(V3_DIR).filter(d => d.endsWith('.sdProfile'))) {
       const mPath = path.join(V3_DIR, dir, 'manifest.json');
       const m = readManifest(dir);
       if (!m) continue;
-      if (m.InstalledByPluginUUID && m.InstalledByPluginUUID !== PLUGIN_ID) continue;
-      if (m.InstalledByPluginUUID === PLUGIN_ID && m.PreconfiguredName && m.ReadOnly === false) continue;
-      m.InstalledByPluginUUID = PLUGIN_ID;
-      m.PreconfiguredName     = m.Name;
-      m.ReadOnly              = false;
-      fs.writeFileSync(mPath, JSON.stringify(m), { encoding: 'utf8' });
+      const isOurs    = m.InstalledByPluginUUID === PLUGIN_ID;
+      const shouldTag = targetSet.has(m.Name);
+      if (shouldTag && !isOurs) {
+        if (m.InstalledByPluginUUID) continue;  // owned by another plugin
+        m.InstalledByPluginUUID = PLUGIN_ID;
+        m.PreconfiguredName     = m.Name;
+        m.ReadOnly              = false;
+        fs.writeFileSync(mPath, JSON.stringify(m), { encoding: 'utf8' });
+      } else if (isOurs && !shouldTag) {
+        const clean = Object.fromEntries(
+          Object.entries(m).filter(([k]) => !['InstalledByPluginUUID','PreconfiguredName','ReadOnly'].includes(k))
+        );
+        fs.writeFileSync(mPath, JSON.stringify(clean), { encoding: 'utf8' });
+      }
     }
   } catch { /* non-fatal */ }
 }
@@ -277,12 +296,12 @@ function stopPolling() {
 // ─── Apply settings from global store ────────────────────────────────────────
 function applySettings(settings) {
   globalSettings = settings || {};
-  if (Array.isArray(globalSettings.appMap) && globalSettings.appMap.length > 0) {
-    appMap = globalSettings.appMap;
-    logMessage(`Loaded custom app map with ${appMap.length} entries`);
-  } else {
-    appMap = DEFAULT_APP_MAP;
-  }
+  appMap = (Array.isArray(globalSettings.appMap) && globalSettings.appMap.length > 0)
+    ? globalSettings.appMap
+    : DEFAULT_APP_MAP;
+  if (appMap.length > 0) logMessage(`Loaded app map with ${appMap.length} entries`);
+  const targets = [...new Set(appMap.map(e => e.profile).filter(Boolean))];
+  syncProfileTags(targets);
 }
 
 // ─── Test detection with countdown ───────────────────────────────────────────
@@ -315,7 +334,7 @@ function connect() {
   ws = new WebSocket(`ws://localhost:${PORT}`);
 
   ws.on("open", () => {
-    tagNewProfiles();
+    syncProfileTags([...new Set(appMap.map(e => e.profile).filter(Boolean))]);
     send({ event: REGISTER_EVT, uuid: PLUGIN_UUID });
     getGlobalSettings();
   });
@@ -344,7 +363,7 @@ function connect() {
 
       case "propertyInspectorDidAppear":
         settingsOpen = true;
-        tagNewProfiles();
+        syncProfileTags([...new Set(appMap.map(e => e.profile).filter(Boolean))]);
         sendToPI({ action: "profilesList", profiles: getProfileNames() });
         break;
 
