@@ -189,19 +189,46 @@ function getProfileNames() {
 let builtInMap = {};  // { processName → profileName }
 
 function loadBuiltInProfileMap() {
+  loadSavedBuiltInIds();
   const map = {};
+  const seenNames = new Set();
   try {
     for (const dir of fs.readdirSync(V3_DIR).filter(d => d.endsWith('.sdProfile'))) {
       const m = readManifest(dir);
       if (!m) continue;
       if (m.InstalledByPluginUUID && m.InstalledByPluginUUID !== PLUGIN_ID) continue;
       // AppIdentifier = untagged; PluginSavedAppIdentifier = already owned by us
-      const appId = m.AppIdentifier || m.PluginSavedAppIdentifier;
-      if (!appId || appId === '*') continue;  // skip catch-all and empty
+      let appId = m.AppIdentifier || m.PluginSavedAppIdentifier;
+      if (!appId || appId === '*') {
+        seenNames.add(m.Name);
+        continue;
+      }
+      seenNames.add(m.Name);
       const procName = appId.split(/[/\\]/).pop().replace(/\.exe$/i, '').toLowerCase();
       if (procName && m.Name) map[procName] = m.Name;
     }
   } catch { /* non-fatal */ }
+  // Recover profiles whose manifests were completely stripped by StreamDeck.
+  // If savedBuiltInIds has a path for a profile we didn't find via manifests,
+  // restore the AppIdentifier field so it can be properly tagged next sync.
+  for (const [name, appId] of Object.entries(savedBuiltInIds)) {
+    if (seenNames.has(name)) continue;  // already found in manifests
+    const procName = appId.split(/[/\\]/).pop().replace(/\.exe$/i, '').toLowerCase();
+    if (!procName) continue;
+    map[procName] = name;
+    // Restore AppIdentifier to the manifest so syncProfileTags can retag it
+    try {
+      for (const dir of fs.readdirSync(V3_DIR).filter(d => d.endsWith('.sdProfile'))) {
+        const m = readManifest(dir);
+        if (!m || m.Name !== name) continue;
+        if (!m.AppIdentifier && !m.PluginSavedAppIdentifier) {
+          m.AppIdentifier = appId;
+          fs.writeFileSync(path.join(V3_DIR, dir, 'manifest.json'), JSON.stringify(m));
+        }
+        break;
+      }
+    } catch { /* non-fatal */ }
+  }
   return map;
 }
 
@@ -215,8 +242,32 @@ function allTargets() {
 // Tags every profile the plugin needs to switch to (app-map targets + built-in
 // Smart Profile targets derived from AppIdentifier). Untags any we previously
 // owned but no longer need. Persists the list to profiles.json for deploy.ps1.
-const DATA_DIR   = path.join(process.env.APPDATA, 'Elgato', 'StreamDeck', 'Data', PLUGIN_ID);
-const TAGS_FILE  = path.join(DATA_DIR, 'profiles.json');
+const DATA_DIR       = path.join(process.env.APPDATA, 'Elgato', 'StreamDeck', 'Data', PLUGIN_ID);
+const TAGS_FILE      = path.join(DATA_DIR, 'profiles.json');
+const BUILTIN_ID_FILE = path.join(DATA_DIR, 'builtin-app-ids.json');
+
+// Persistent map of profileName → AppIdentifier path, written whenever we tag
+// a profile. Survives StreamDeck manifest restores and lets us recover profiles
+// that have been completely stripped of their AppIdentifier.
+let savedBuiltInIds = {};
+
+function loadSavedBuiltInIds() {
+  try { savedBuiltInIds = JSON.parse(fs.readFileSync(BUILTIN_ID_FILE, 'utf8')); } catch { savedBuiltInIds = {}; }
+}
+
+function saveBuiltInId(name, appId) {
+  savedBuiltInIds[name] = appId;
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(BUILTIN_ID_FILE, JSON.stringify(savedBuiltInIds), { encoding: 'utf8' });
+  } catch { /* non-fatal */ }
+}
+
+function removeBuiltInId(name) {
+  if (!(name in savedBuiltInIds)) return;
+  delete savedBuiltInIds[name];
+  try { fs.writeFileSync(BUILTIN_ID_FILE, JSON.stringify(savedBuiltInIds), { encoding: 'utf8' }); } catch { /* non-fatal */ }
+}
 
 function syncProfileTags(targets) {
   const targetSet = new Set(targets);
@@ -234,9 +285,8 @@ function syncProfileTags(targets) {
       const PLUGIN_KEYS = ['InstalledByPluginUUID', 'PreconfiguredName', 'ReadOnly', 'PluginSavedAppIdentifier'];
       if (shouldTag && !isOurs) {
         if (m.InstalledByPluginUUID) continue;  // owned by another plugin
-        // Move any AppIdentifier (including "*") out of the manifest so
-        // StreamDeck won't overwrite our tag via its built-in Smart Profile logic
         if (m.AppIdentifier) {
+          saveBuiltInId(m.Name, m.AppIdentifier);
           m.PluginSavedAppIdentifier = m.AppIdentifier;
           delete m.AppIdentifier;
         }
@@ -246,10 +296,12 @@ function syncProfileTags(targets) {
         fs.writeFileSync(mPath, JSON.stringify(m), { encoding: 'utf8' });
       } else if (isOurs && shouldTag && m.AppIdentifier) {
         // Migration: already tagged but AppIdentifier wasn't moved yet
+        saveBuiltInId(m.Name, m.AppIdentifier);
         m.PluginSavedAppIdentifier = m.AppIdentifier;
         delete m.AppIdentifier;
         fs.writeFileSync(mPath, JSON.stringify(m), { encoding: 'utf8' });
       } else if (isOurs && !shouldTag) {
+        removeBuiltInId(m.Name);
         const clean = Object.fromEntries(
           Object.entries(m).filter(([k]) => !PLUGIN_KEYS.includes(k))
         );
@@ -281,6 +333,38 @@ function detectProfile(proc, title = '') {
   return null;
 }
 
+// ─── Profile directory index ──────────────────────────────────────────────────
+// Maps profile name → sdProfile directory name. Rebuilt whenever we reload
+// the built-in map, so lookups in ensureProfileTagged are a single file read.
+let profileDirMap = {};
+
+function buildProfileDirMap() {
+  profileDirMap = {};
+  try {
+    for (const dir of fs.readdirSync(V3_DIR).filter(d => d.endsWith('.sdProfile'))) {
+      const m = readManifest(dir);
+      if (m?.Name) profileDirMap[m.Name] = dir;
+    }
+  } catch { /* non-fatal */ }
+}
+
+// Re-tags a single profile right before switchToProfile is called. StreamDeck
+// periodically restores AppIdentifier to manifests for running apps, which can
+// strip InstalledByPluginUUID and break switchToProfile. Fixing it inline
+// (one manifest read+write) is fast enough to not affect perceived latency.
+function ensureProfileTagged(name) {
+  const dir = profileDirMap[name];
+  if (!dir) return;
+  const m = readManifest(dir);
+  if (!m || m.InstalledByPluginUUID === PLUGIN_ID) return;
+  if (m.InstalledByPluginUUID) return;  // owned by a different plugin
+  if (m.AppIdentifier) { m.PluginSavedAppIdentifier = m.AppIdentifier; delete m.AppIdentifier; }
+  m.InstalledByPluginUUID = PLUGIN_ID;
+  m.PreconfiguredName     = m.Name;
+  m.ReadOnly              = false;
+  try { fs.writeFileSync(path.join(V3_DIR, dir, 'manifest.json'), JSON.stringify(m)); } catch { /* non-fatal */ }
+}
+
 // ─── StreamDeck WebSocket send helpers ───────────────────────────────────────
 function send(payload) {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
@@ -288,6 +372,7 @@ function send(payload) {
 
 function switchToProfile(profileName) {
   if (!deviceId) return;
+  if (profileName) ensureProfileTagged(profileName);
   send({ event: "switchToProfile", context: PLUGIN_UUID, device: deviceId, payload: { profile: profileName } });
 }
 
@@ -336,8 +421,20 @@ async function pollOnce() {
     const profile = detectProfile(proc, title);
     if (profile !== lastProfile) {
       if (profile) {
-        pluginDepth = (lastProfile !== null) ? pluginDepth + 1 : 1;
+        const isFirst = (lastProfile === null);
+        pluginDepth = isFirst ? 1 : pluginDepth + 1;
         lastProfile = profile;
+        // On the first plugin switch (unmonitored → managed), send a blank
+        // release first, then wait 50 ms. The built-in Smart Profile or a
+        // manifest write may have pre-emptively set this profile, making its
+        // "previous" point back to itself. The release + delay resets that so
+        // our switch records Default as "previous" and switchToProfile('') later
+        // lands on Default. The 50 ms gap is necessary — sending both messages
+        // in the same tick causes StreamDeck to drop the second one.
+        if (isFirst) {
+          switchToProfile('');
+          await new Promise(r => setTimeout(r, 50));
+        }
         logMessage(`Detected "${proc}" → switching to profile "${profile}"`);
         switchToProfile(profile);
       } else {
@@ -364,6 +461,7 @@ function startPolling() {
   if (resyncTimer) clearInterval(resyncTimer);
   resyncTimer = setInterval(() => {
     builtInMap = loadBuiltInProfileMap();
+    buildProfileDirMap();
     syncProfileTags(allTargets());
   }, 10000);
 }
@@ -380,6 +478,7 @@ function applySettings(settings) {
     ? globalSettings.appMap
     : DEFAULT_APP_MAP;
   builtInMap = loadBuiltInProfileMap();
+  buildProfileDirMap();
   if (appMap.length > 0) logMessage(`Loaded app map: ${appMap.length} custom rules, ${Object.keys(builtInMap).length} built-in Smart Profile apps`);
   syncProfileTags(allTargets());
 }
@@ -415,6 +514,7 @@ function connect() {
 
   ws.on("open", () => {
     builtInMap = loadBuiltInProfileMap();
+    buildProfileDirMap();
     // Don't syncProfileTags here — appMap is empty until didReceiveGlobalSettings.
     // applySettings() will do the full sync once settings are loaded.
     send({ event: REGISTER_EVT, uuid: PLUGIN_UUID });
@@ -446,6 +546,7 @@ function connect() {
       case "propertyInspectorDidAppear":
         settingsOpen = true;
         builtInMap = loadBuiltInProfileMap();
+        buildProfileDirMap();
         syncProfileTags(allTargets());
         sendToPI({ action: "profilesList", profiles: getProfileNames() });
         break;
