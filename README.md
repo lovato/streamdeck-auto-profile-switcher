@@ -194,6 +194,45 @@ Window title matching is impossible in Smart Profiles entirely — it's a proces
 
 ---
 
+## Packaging for distribution
+
+To create a `.streamDeckPlugin` installer file (for sharing or Marketplace submission):
+
+```bash
+# Install Stream Deck CLI (one-time setup)
+task install:cli
+
+# Package the plugin
+task pack
+# → Creates dist/com.lovato.autoprofileswitcher.sdPlugin.streamDeckPlugin
+```
+
+The installer can be shared directly with users (double-click to install) or submitted to the Elgato Marketplace.
+
+### Versioned releases
+
+Tag a git release, then package with the version:
+
+```bash
+git tag v1.1.0 && git push --tags
+task pack:release
+# → Creates dist/com.lovato.autoprofileswitcher.sdPlugin.streamDeckPlugin v1.1.0
+```
+
+---
+
+## Submitting to Marketplace
+
+1. **Create a Maker account** at [maker.elgato.com](https://maker.elgato.com) and sign the Maker Agreement.
+2. **Package the plugin**: `task pack:release`
+3. **Upload** the `.streamDeckPlugin` file to Maker Console → Create product → Stream Deck plugin.
+4. **Fill in details**: name, description, tags, pricing, screenshots, app icon.
+5. **Submit for review**. Review typically takes 4–10 business days.
+
+For more details, see the [Elgato Marketplace documentation](https://docs.elgato.com/marketplace/become-a-maker/).
+
+---
+
 ## License
 
 MIT
