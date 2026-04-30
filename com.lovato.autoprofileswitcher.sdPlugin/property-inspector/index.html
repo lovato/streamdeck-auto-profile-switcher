@@ -58,13 +58,35 @@
 
     .row {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr 24px;
+      grid-template-columns: 20px 1fr 1fr 1fr 24px;
       gap: 6px;
       align-items: center;
       margin-bottom: 6px;
+      cursor: default;
     }
 
     .row input { margin-bottom: 0; }
+
+    .drag-handle {
+      color: #666;
+      cursor: grab;
+      font-size: 12px;
+      text-align: center;
+      user-select: none;
+      line-height: 1;
+    }
+
+    .drag-handle:active { cursor: grabbing; }
+
+    .row.dragging {
+      opacity: 0.4;
+      background: #0078d4;
+      border-radius: 4px;
+    }
+
+    .row.drag-over {
+      border-top: 2px solid #0078d4;
+    }
 
     .remove-btn {
       background: none;
@@ -81,7 +103,7 @@
 
     .col-label {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr 24px;
+      grid-template-columns: 20px 1fr 1fr 1fr 24px;
       gap: 6px;
       margin-bottom: 4px;
     }
@@ -149,6 +171,7 @@
   </p>
 
   <div class="col-label">
+    <span></span>
     <span>Process (partial)</span>
     <span>Title match (optional)</span>
     <span>Profile (exact)</span>
@@ -170,8 +193,9 @@
           style="display:none; margin-top:6px">+ Add to app list</button>
 
   <div class="tip">
-    💡 Click <strong>Test detection</strong>, then switch to your app within 3 seconds.<br>
-    The profile name must match exactly, including capitals.
+    <strong>Rule order matters.</strong> Drag rows using the grip (⠿) handle to reorder.<br>
+    Title-specific rules always beat generic ones. Within each type, first match wins.<br>
+    Use <strong>Test detection</strong> to find process names and window titles.
   </div>
 
 <script>
@@ -269,7 +293,14 @@
     const container = document.getElementById("entries");
     const row = document.createElement("div");
     row.className = "row";
-    row.innerHTML = `
+    row.draggable = true;
+
+    const grip = document.createElement("span");
+    grip.className = "drag-handle";
+    grip.textContent = "⠿";
+    row.appendChild(grip);
+
+    row.innerHTML += `
       <input type="text" placeholder="e.g. ms-teams"   value="${match}"      class="match-input" />
       <input type="text" placeholder="e.g. PowerShell" value="${titleMatch}" class="title-input" />
     `;
@@ -280,6 +311,57 @@
     btn.onclick = () => row.remove();
     row.appendChild(btn);
     container.appendChild(row);
+
+    // Drag-and-drop events
+    row.addEventListener("dragstart", onDragStart);
+    row.addEventListener("dragover", onDragOver);
+    row.addEventListener("dragleave", onDragLeave);
+    row.addEventListener("drop", onDrop);
+    row.addEventListener("dragend", onDragEnd);
+  }
+
+  let dragSrcEl = null;
+
+  function onDragStart(e) {
+    dragSrcEl = this;
+    this.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+  }
+
+  function onDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (this !== dragSrcEl) {
+      this.classList.add("drag-over");
+    }
+  }
+
+  function onDragLeave(e) {
+    this.classList.remove("drag-over");
+  }
+
+  function onDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    this.classList.remove("drag-over");
+    if (dragSrcEl && dragSrcEl !== this) {
+      // Move dragged row to drop position
+      const container = document.getElementById("entries");
+      const allRows = [...container.querySelectorAll(".row")];
+      const srcIdx = allRows.indexOf(dragSrcEl);
+      const dstIdx = allRows.indexOf(this);
+      if (srcIdx < dstIdx) {
+        container.insertBefore(dragSrcEl, this.nextSibling);
+      } else {
+        container.insertBefore(dragSrcEl, this);
+      }
+    }
+  }
+
+  function onDragEnd(e) {
+    document.querySelectorAll(".row").forEach(r => {
+      r.classList.remove("dragging", "drag-over");
+    });
   }
 
   // ── Collect current rows ─────────────────────────────────────────────────
