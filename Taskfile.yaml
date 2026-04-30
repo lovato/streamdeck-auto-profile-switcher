@@ -42,19 +42,16 @@ tasks:
     cmds:
       - powershell.exe -NonInteractive -ExecutionPolicy Bypass -Command "Stop-Process -Name 'StreamDeck' -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; Start-Process '$env:ProgramFiles\Elgato\StreamDeck\StreamDeck.exe'"
 
-  install:cli:
-    desc: Install Stream Deck CLI globally (required for packaging)
-    cmds:
-      - npm install -g @elgato/cli@latest
-
   pack:
     desc: Package plugin into .streamDeckPlugin installer
+    dir: '{{.PLUGIN_DIR}}'
     cmds:
-      - mkdir -p dist
-      - streamdeck pack {{.PLUGIN_DIR}} -o dist/ --force --no-update-check
+      - mkdir -p ../dist
+      - npx streamdeck pack . -o ../dist/ --force --no-update-check
 
   pack:release:
     desc: Package plugin with version from latest git tag
+    dir: '{{.PLUGIN_DIR}}'
     cmds:
-      - mkdir -p dist
-      - streamdeck pack {{.PLUGIN_DIR}} -o dist/ --version $(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//') --force --no-update-check
+      - mkdir -p ../dist
+      - npx streamdeck pack . -o ../dist/ --version $(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//') --force --no-update-check

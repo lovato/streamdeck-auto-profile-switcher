@@ -199,8 +199,8 @@ Window title matching is impossible in Smart Profiles entirely — it's a proces
 To create a `.streamDeckPlugin` installer file (for sharing or Marketplace submission):
 
 ```bash
-# Install Stream Deck CLI (one-time setup)
-task install:cli
+# Install dependencies (includes Stream Deck CLI)
+task deps
 
 # Package the plugin
 task pack
