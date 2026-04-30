@@ -481,7 +481,6 @@ function ensureProfileTagged(name) {
   if (!m) return;
   if (m.InstalledByPluginUUID && m.InstalledByPluginUUID !== PLUGIN_ID) return; // owned by another plugin
   let dirty = false;
-  // Re-apply migration if StreamDeck restored AppIdentifier while we owned it
   if (m.AppIdentifier) {
     m.PluginSavedAppIdentifier = m.AppIdentifier;
     delete m.AppIdentifier;
