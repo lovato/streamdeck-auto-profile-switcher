@@ -186,7 +186,124 @@ function getProfileNames() {
 //
 // StreamDeck periodically restores AppIdentifier in manifests for running apps,
 // so syncProfileTags is called on a timer to keep the migration applied.
+//
+// For profiles without AppIdentifier (user never configured Smart Profile),
+// we also try to infer the process name from the profile name using common
+// patterns. This lets the plugin handle Chrome, VSCode, etc. out of the box.
 let builtInMap = {};  // { processName → profileName }
+
+// Common profile name → process name mappings for profiles without AppIdentifier.
+// Only used as a fallback when Smart Profile wasn't configured.
+const PROFILE_NAME_TO_PROCESS = {
+  'chrome': 'chrome',
+  'google chrome': 'chrome',
+  'vscode': 'code',
+  'visual studio code': 'code',
+  'visual studio': 'devenv',
+  'firefox': 'firefox',
+  'microsoft edge': 'msedge',
+  'edge': 'msedge',
+  'notepad++': 'notepad++',
+  'notepad': 'notepad',
+  'spotify': 'spotify',
+  'discord': 'discord',
+  'slack': 'slack',
+  'zoom': 'zoom',
+  'teams': 'teams',
+  'whatsapp': 'whatsapp',
+  'windows terminal': 'windowsterminal',
+  'terminal': 'windowsterminal',
+  'powershell': 'powershell',
+  'cmd': 'cmd',
+  'command prompt': 'cmd',
+  'explorer': 'explorer',
+  'file explorer': 'explorer',
+  'steam': 'steam',
+  'epic games launcher': 'epicgameslauncher',
+  'obs': 'obs64',
+  'obs studio': 'obs64',
+  'photoshop': 'photoshop',
+  'adobe photoshop': 'photoshop',
+  'illustrator': 'illustrator',
+  'adobe illustrator': 'illustrator',
+  'premiere': 'premiere',
+  'adobe premiere': 'premiere',
+  'after effects': 'aftereffects',
+  'adobe after effects': 'aftereffects',
+  'figma': 'figma',
+  'sketch': 'sketch',
+  'xd': 'adobexd',
+  'adobe xd': 'adobexd',
+  'sublime text': 'sublime_text',
+  'atom': 'atom',
+  'intellij idea': 'idea64',
+  'intellij': 'idea64',
+  'webstorm': 'webstorm64',
+  'pycharm': 'pycharm64',
+  'rider': 'rider64',
+  'clion': 'clion64',
+  'android studio': 'studio64',
+  'xcode': 'xcode',
+  'safari': 'safari',
+  'opera': 'opera',
+  'brave': 'brave',
+  'vivaldi': 'vivaldi',
+  'tor browser': 'firefox',
+  'calc': 'calc',
+  'calculator': 'calc',
+  'paint': 'mspaint',
+  'snipping tool': 'snippingtool',
+  'task manager': 'taskmgr',
+  'settings': 'systemsettings',
+  'control panel': 'control',
+  'run': 'explorer',
+  'search': 'searchhost',
+  'cortana': 'searchhost',
+  'widgets': 'widgets',
+  'weather': 'widgets',
+  'news': 'widgets',
+  'calendar': 'windowscalendar',
+  'mail': 'outlook',
+  'microsoft mail': 'outlook',
+  'microsoft outlook': 'outlook',
+  'outlook': 'outlook',
+  'microsoft store': 'winstore',
+  'store': 'winstore',
+  'xbox': 'xbox',
+  'game bar': 'gamebar',
+  'gamebar': 'gamebar',
+  'minecraft': 'minecraft',
+  'fortnite': 'fortnite',
+  'league of legends': 'leagueoflegends',
+  'valorant': 'valorant',
+  'overwatch': 'overwatch',
+  'counter-strike': 'csgo',
+  'cs:go': 'csgo',
+  'csgo': 'csgo',
+  'cs2': 'cs2',
+  'apex legends': 'apex',
+  'apex': 'apex',
+  'rocket league': 'rocketleague',
+  'rocketleague': 'rocketleague',
+  'elden ring': 'eldenring',
+  'cyberpunk': 'cyberpunk2077',
+  'cyberpunk 2077': 'cyberpunk2077',
+  'baldur\'s gate 3': 'bg3',
+  'bg3': 'bg3',
+  'starfield': 'starfield',
+  'fallout': 'fallout4',
+  'fallout 4': 'fallout4',
+  'skyrim': 'skyrimse',
+  'the elder scrolls': 'skyrimse',
+  'witcher': 'witcher3',
+  'the witcher 3': 'witcher3',
+  'witcher 3': 'witcher3',
+  'red dead redemption': 'rdr2',
+  'rdr2': 'rdr2',
+  'gta': 'gta5',
+  'gta v': 'gta5',
+  'grand theft auto': 'gta5',
+};
 
 function loadBuiltInProfileMap() {
   loadSavedBuiltInIds();
@@ -200,6 +317,11 @@ function loadBuiltInProfileMap() {
       // AppIdentifier = untagged; PluginSavedAppIdentifier = already owned by us
       let appId = m.AppIdentifier || m.PluginSavedAppIdentifier;
       if (!appId || appId === '*') {
+        // Fallback: try to infer process name from profile name
+        const lowerName = m.Name.toLowerCase();
+        if (PROFILE_NAME_TO_PROCESS[lowerName]) {
+          map[PROFILE_NAME_TO_PROCESS[lowerName]] = m.Name;
+        }
         seenNames.add(m.Name);
         continue;
       }
@@ -350,19 +472,30 @@ function buildProfileDirMap() {
 
 // Re-tags a single profile right before switchToProfile is called. StreamDeck
 // periodically restores AppIdentifier to manifests for running apps, which can
-// strip InstalledByPluginUUID and break switchToProfile. Fixing it inline
-// (one manifest read+write) is fast enough to not affect perceived latency.
+// break switchToProfile when both AppIdentifier and InstalledByPluginUUID are
+// present. We must re-apply the migration even if we already own the profile.
 function ensureProfileTagged(name) {
   const dir = profileDirMap[name];
   if (!dir) return;
   const m = readManifest(dir);
-  if (!m || m.InstalledByPluginUUID === PLUGIN_ID) return;
-  if (m.InstalledByPluginUUID) return;  // owned by a different plugin
-  if (m.AppIdentifier) { m.PluginSavedAppIdentifier = m.AppIdentifier; delete m.AppIdentifier; }
-  m.InstalledByPluginUUID = PLUGIN_ID;
-  m.PreconfiguredName     = m.Name;
-  m.ReadOnly              = false;
-  try { fs.writeFileSync(path.join(V3_DIR, dir, 'manifest.json'), JSON.stringify(m)); } catch { /* non-fatal */ }
+  if (!m) return;
+  if (m.InstalledByPluginUUID && m.InstalledByPluginUUID !== PLUGIN_ID) return; // owned by another plugin
+  let dirty = false;
+  // Re-apply migration if StreamDeck restored AppIdentifier while we owned it
+  if (m.AppIdentifier) {
+    m.PluginSavedAppIdentifier = m.AppIdentifier;
+    delete m.AppIdentifier;
+    dirty = true;
+  }
+  if (m.InstalledByPluginUUID !== PLUGIN_ID) {
+    m.InstalledByPluginUUID = PLUGIN_ID;
+    m.PreconfiguredName     = m.Name;
+    m.ReadOnly              = false;
+    dirty = true;
+  }
+  if (dirty) {
+    try { fs.writeFileSync(path.join(V3_DIR, dir, 'manifest.json'), JSON.stringify(m)); } catch { /* non-fatal */ }
+  }
 }
 
 // ─── StreamDeck WebSocket send helpers ───────────────────────────────────────
@@ -424,13 +557,6 @@ async function pollOnce() {
         const isFirst = (lastProfile === null);
         pluginDepth = isFirst ? 1 : pluginDepth + 1;
         lastProfile = profile;
-        // On the first plugin switch (unmonitored → managed), send a blank
-        // release first, then wait 50 ms. The built-in Smart Profile or a
-        // manifest write may have pre-emptively set this profile, making its
-        // "previous" point back to itself. The release + delay resets that so
-        // our switch records Default as "previous" and switchToProfile('') later
-        // lands on Default. The 50 ms gap is necessary — sending both messages
-        // in the same tick causes StreamDeck to drop the second one.
         if (isFirst) {
           switchToProfile('');
           await new Promise(r => setTimeout(r, 50));
