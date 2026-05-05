@@ -166,36 +166,39 @@
 
   <h2>Auto Profile Switcher</h2>
   <p class="description">
-    Maps WindowsApps processes to StreamDeck profile names.<br>
-    Profile names must match exactly what you named them in StreamDeck.
+    <b>Maps any Windows processes to StreamDeck profile names.</b><br>
+    <li/>Process name works by partial match (e.g. "teams" matches "ms-teams.exe").
+    <li/>Optionally add a window title match for finer control (e.g. "PowerShell" matches "Windows PowerShell").
+    <li/>Finally, select the profile to switch to when a match is found.
   </p>
+
+  <br>
 
   <div class="col-label">
     <span></span>
-    <span>Process (partial)</span>
-    <span>Title match (optional)</span>
-    <span>Profile (exact)</span>
+    <span>Process Name</span>
+    <span>Title Match</span>
+    <span>Profile</span>
     <span></span>
   </div>
 
   <div id="entries"></div>
 
-  <button class="btn" onclick="addRow()">+ Add app</button>
-
-  <br>
+  <button class="btn" onclick="addRow()">Add new entry</button>
 
   <button class="btn primary" onclick="save()">Save</button>
-  <button class="btn" onclick="testDetection()">Test detection</button>
+  <br>
 
   <div id="status"></div>
   <div id="test-result"></div>
   <button id="add-detection-btn" class="btn" onclick="addFromDetection()"
-          style="display:none; margin-top:6px">+ Add to app list</button>
+          style="display:none; margin-top:6px">Add this to App List</button>
+  <button class="btn" onclick="testDetection()">Test Detection</button>
 
   <div class="tip">
     <strong>Rule order matters.</strong> Drag rows using the grip (⠿) handle to reorder.<br>
-    Title-specific rules always beat generic ones. Within each type, first match wins.<br>
-    Use <strong>Test detection</strong> to find process names and window titles.
+    Title-specific rules always beat generic ones. Within each type, first match wins.<br><br>
+    Use <strong>Test Detection</strong> to find process names and window titles.
   </div>
 
 <script>

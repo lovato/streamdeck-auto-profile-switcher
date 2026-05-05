@@ -115,8 +115,15 @@ if (Test-Path $OldPluginDir) {
     Remove-Item -Recurse -Force $OldPluginDir
     Write-Host "    Removed old plugin directory"
 }
-Copy-Item -Path $PluginDir -Destination $PluginsPath -Recurse -Force
-Write-Host "    Deployed: $PluginsPath\$PluginDir"
+# Use robocopy for reliable copying (handles WSL paths better than Copy-Item)
+# Exclude node_modules — everything is bundled into build/index.js via ncc
+$source = Join-Path $PWD.ProviderPath $PluginDir
+$dest = Join-Path $PluginsPath $PluginDir
+robocopy $source $dest /E /R:1 /W:1 /NFL /NDL /NJH /NJS /XD node_modules
+if ($LASTEXITCODE -ge 8) {
+    Write-Error "robocopy failed with exit code $LASTEXITCODE"
+}
+Write-Host "    Deployed: $dest"
 
 Write-Host "==> Syncing profile ownership..."
 $TagsFile    = Join-Path $DataDir "profiles.json"

@@ -68,10 +68,10 @@ brew install go-task
 # Clone and deploy
 git clone https://github.com/lovato/streamdeck-auto-profile-switcher
 cd streamdeck-windowsapps-plugin
-task
+task deploy
 ```
 
-`task` installs npm dependencies, copies the plugin to StreamDeck's plugins directory, tags your profiles, and restarts StreamDeck — all in one step.
+`task deploy` installs npm dependencies, bundles the plugin, copies it to StreamDeck's plugins directory, and restarts StreamDeck — all in one step.
 
 ### Option B — Native Windows (PowerShell)
 
@@ -85,7 +85,8 @@ cd streamdeck-windowsapps-plugin
 
 1. Copy `com.lovato.autoprofileswitcher.sdPlugin` to `%APPDATA%\Elgato\StreamDeck\Plugins\`
 2. Run `npm install` inside the plugin folder
-3. Restart StreamDeck
+3. Run `npx @vercel/ncc build app.js --out build/` inside the plugin folder
+4. Restart StreamDeck
 
 ---
 
@@ -194,29 +195,41 @@ Window title matching is impossible in Smart Profiles entirely — it's a proces
 
 ---
 
-## Packaging for distribution
+## Available tasks
+
+Run `task` with no arguments to list all available tasks.
+
+| Task | Description |
+|---|---|
+| `task deploy` | Install deps, build, copy to StreamDeck plugins folder, restart StreamDeck |
+| `task deploy:quick` | Build and deploy (skip `npm install`) |
+| `task deploy:no-restart` | Build and deploy without restarting StreamDeck |
+| `task uninstall` | Untag all plugin-owned profiles and remove the plugin |
+| `task deps` | Install npm dependencies |
+| `task build` | Bundle `app.js` + dependencies → `build/index.js` via ncc |
+| `task pack` | Build and package into `dist/*.streamDeckPlugin` |
+| `task pack:release` | Build and package using the version from the latest git tag |
+| `task restart` | Restart the StreamDeck application |
+
+### Packaging for distribution
 
 To create a `.streamDeckPlugin` installer file (for sharing or Marketplace submission):
 
 ```bash
-# Install dependencies (includes Stream Deck CLI)
-task deps
-
-# Package the plugin
 task pack
-# → Creates dist/com.lovato.autoprofileswitcher.sdPlugin.streamDeckPlugin
+# → dist/com.lovato.autoprofileswitcher.streamDeckPlugin
 ```
 
 The installer can be shared directly with users (double-click to install) or submitted to the Elgato Marketplace.
 
 ### Versioned releases
 
-Tag a git release, then package with the version:
+Tag a git release, then package with the version embedded:
 
 ```bash
 git tag v1.1.0 && git push --tags
 task pack:release
-# → Creates dist/com.lovato.autoprofileswitcher.sdPlugin.streamDeckPlugin v1.1.0
+# → dist/com.lovato.autoprofileswitcher.streamDeckPlugin (v1.1.0)
 ```
 
 ---

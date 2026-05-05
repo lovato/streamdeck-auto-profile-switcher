@@ -11,19 +11,22 @@ tasks:
       - task --list
 
   deploy:
-    desc: Install npm deps, deploy plugin, and restart StreamDeck
+    desc: Install npm deps, build, deploy plugin, and restart StreamDeck
     deps: [deps]
     cmds:
+      - task: build
       - powershell.exe -NonInteractive -ExecutionPolicy Bypass -File deploy.ps1 -SkipDeps
 
   deploy:quick:
-    desc: Deploy plugin and restart StreamDeck (skips npm install)
+    desc: Build and deploy plugin, restart StreamDeck (skips npm install)
     cmds:
+      - task: build
       - powershell.exe -NonInteractive -ExecutionPolicy Bypass -File deploy.ps1 -SkipDeps
 
   deploy:no-restart:
-    desc: Deploy plugin without restarting StreamDeck
+    desc: Build and deploy plugin without restarting StreamDeck
     cmds:
+      - task: build
       - powershell.exe -NonInteractive -ExecutionPolicy Bypass -File deploy.ps1 -SkipDeps -NoRestart
 
   uninstall:
@@ -37,20 +40,28 @@ tasks:
     cmds:
       - npm install
 
+  build:
+    desc: Bundle plugin dependencies into build/index.js using ncc
+    dir: '{{.PLUGIN_DIR}}'
+    cmds:
+      - npx @vercel/ncc build app.js --out build/
+
   restart:
     desc: Restart the StreamDeck application
     cmds:
       - powershell.exe -NonInteractive -ExecutionPolicy Bypass -Command "Stop-Process -Name 'StreamDeck' -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; Start-Process '$env:ProgramFiles\Elgato\StreamDeck\StreamDeck.exe'"
 
   pack:
-    desc: Package plugin into .streamDeckPlugin installer
+    desc: Build and package plugin into .streamDeckPlugin installer
+    deps: [build]
     dir: '{{.PLUGIN_DIR}}'
     cmds:
       - mkdir -p ../dist
       - npx streamdeck pack . -o ../dist/ --force --no-update-check
 
   pack:release:
-    desc: Package plugin with version from latest git tag
+    desc: Build and package plugin with version from latest git tag
+    deps: [build]
     dir: '{{.PLUGIN_DIR}}'
     cmds:
       - mkdir -p ../dist

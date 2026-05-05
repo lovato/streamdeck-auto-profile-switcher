@@ -9,7 +9,8 @@
     "ws": "^8.17.1"
   },
   "devDependencies": {
-    "@elgato/cli": "^1.6.0"
+    "@elgato/cli": "^1.7.4",
+    "@vercel/ncc": "^0.38.4"
   },
   "engines": {
     "node": ">=20"
