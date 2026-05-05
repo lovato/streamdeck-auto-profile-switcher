@@ -484,14 +484,14 @@ function getProfilesStatus() {
 // Tags specific profiles by name, regardless of whether they're in allTargets().
 // Used from the PI "Patch" buttons to mark profiles as plugin-owned so that
 // switchToProfile will work for them.
-function patchProfiles(names) {
+function patchProfiles(names, force = false) {
   const nameSet = new Set(names);
   try {
     for (const dir of fs.readdirSync(V3_DIR).filter(d => d.endsWith('.sdProfile'))) {
       const mPath = path.join(V3_DIR, dir, 'manifest.json');
       const m = readManifest(dir);
       if (!m?.Name || !nameSet.has(m.Name)) continue;
-      if (m.InstalledByPluginUUID && m.InstalledByPluginUUID !== PLUGIN_ID) continue;
+      if (m.InstalledByPluginUUID && m.InstalledByPluginUUID !== PLUGIN_ID && !force) continue;
       if (m.AppIdentifier && m.AppIdentifier !== '*') {
         saveBuiltInId(m.Name, m.AppIdentifier);
         m.PluginSavedAppIdentifier = m.AppIdentifier;
@@ -780,7 +780,7 @@ function connect() {
           sendToPI({ action: "profilesStatus", profiles: getProfilesStatus() });
         }
         if (msg.payload?.action === "patchProfiles") {
-          patchProfiles(msg.payload.names || []);
+          patchProfiles(msg.payload.names || [], msg.payload.force || false);
           sendToPI({ action: "profilesStatus", profiles: getProfilesStatus() });
         }
         break;

@@ -211,6 +211,19 @@
     }
 
     .profile-status-patch:hover { background: #444; color: #fff; }
+
+    .profile-status-force {
+      padding: 1px 7px;
+      font-size: 11px;
+      border-radius: 3px;
+      border: 1px solid #7a4a1a;
+      background: #3a2010;
+      color: #e0a050;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .profile-status-force:hover { background: #4a2a10; color: #ffc070; }
   </style>
 </head>
 <body>
@@ -523,16 +536,19 @@
     }
 
     list.innerHTML = profilesStatusData.map((p, i) => {
-      const info     = STATUS_INFO[p.status] || { label: p.status, color: '#888' };
-      const canPatch = p.status === 'smart' || p.status === 'plain' || p.status === 'conflict';
-      const safeName = p.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-      const patchBtn = canPatch
+      const info      = STATUS_INFO[p.status] || { label: p.status, color: '#888' };
+      const canPatch  = p.status === 'smart' || p.status === 'plain' || p.status === 'conflict';
+      const canForce  = p.status === 'other';
+      const safeName  = p.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const actionBtn = canPatch
         ? `<button class="profile-status-patch" data-patch-index="${i}">Patch</button>`
-        : '';
+        : canForce
+          ? `<button class="profile-status-force" data-force-index="${i}" title="Take over ownership from another plugin">Force</button>`
+          : '';
       return `<div class="profile-status-row">
         <span class="profile-status-name" title="${safeName}">${safeName}</span>
         <span class="profile-status-badge" style="color:${info.color}">${info.label}</span>
-        ${patchBtn}
+        ${actionBtn}
       </div>`;
     }).join('');
 
@@ -572,7 +588,7 @@
     }
   }
 
-  function patchProfiles(names) {
+  function patchProfiles(names, force) {
     setPatchNote('① click received', '#e0a050');
     if (!sdConnection) { setPatchNote('✗ no connection', '#e05555'); return; }
     if (sdConnection.readyState !== WebSocket.OPEN) { setPatchNote('✗ ws not open (state=' + sdConnection.readyState + ')', '#e05555'); return; }
@@ -582,7 +598,7 @@
       sdConnection.send(JSON.stringify({
         event: 'sendToPlugin', context: actionContext,
         action: 'com.lovato.autoprofileswitcher.monitor',
-        payload: { action: 'patchProfiles', names },
+        payload: { action: 'patchProfiles', names, force: !!force },
       }));
       setPatchNote('③ sent, waiting for response…', '#7aabda');
     } catch (err) {
@@ -598,13 +614,19 @@
     patchProfiles(names);
   }
 
-  // Event delegation for dynamically-rendered Patch buttons
+  // Event delegation for dynamically-rendered Patch / Force buttons
   document.getElementById('profiles-status-list').addEventListener('click', function(e) {
-    const btn = e.target.closest('[data-patch-index]');
-    if (!btn) return;
-    const idx = parseInt(btn.dataset.patchIndex, 10);
-    const p = profilesStatusData[idx];
-    if (p) patchProfiles([p.name]);
+    const patch = e.target.closest('[data-patch-index]');
+    if (patch) {
+      const p = profilesStatusData[parseInt(patch.dataset.patchIndex, 10)];
+      if (p) patchProfiles([p.name], false);
+      return;
+    }
+    const force = e.target.closest('[data-force-index]');
+    if (force) {
+      const p = profilesStatusData[parseInt(force.dataset.forceIndex, 10)];
+      if (p) patchProfiles([p.name], true);
+    }
   });
 
   // ── Test detection ────────────────────────────────────────────────────────
