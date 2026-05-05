@@ -208,6 +208,42 @@ manifest has been completely stripped (no `AppIdentifier`, no
 restore `AppIdentifier` so it can be properly re-tagged. Prevents the profile
 from becoming permanently invisible after multiple tag/restore cycles.
 
+## Why the build/bundle step is required
+
+StreamDeck's `streamdeck pack` includes ALL `node_modules/` (4995 files, 21MB+)
+which causes the plugin to fail installation silently. The fix: use `ncc` to bundle
+dependencies into a single file.
+
+**Build process:**
+```bash
+npx @vercel/ncc build app.js --out build/
+```
+
+This creates `build/index.js` (157KB) with all dependencies bundled. The `plugin.html`
+file loads this bundled file:
+```html
+<script src="build/index.js"></script>
+```
+
+**Manifest must use:** `"CodePath": "plugin.html"` (not `app.js` directly).
+
+**Packaging:**
+```bash
+npx streamdeck pack . -o ../dist/ --force --no-update-check
+```
+
+Only the bundled `build/` directory should be in the package, not raw `node_modules/`.
+
+## Why `plugin.html` wrapper is required
+
+StreamDeck 7.4+ appears to require `CodePath` to point to an HTML file
+(not JS directly). The HTML file simply loads the bundled JavaScript:
+```html
+<script src="build/index.js"></script>
+```
+
+Without this wrapper, the plugin may fail to install or load.
+
 ## Known edge cases / limitations
 
 - **`switchToProfile('')` × N peeling**: undocumented behavior. If Elgato
@@ -222,3 +258,5 @@ from becoming permanently invisible after multiple tag/restore cycles.
 - **Multiple devices**: the plugin uses `deviceId` from the first
   `deviceDidConnect` event. Profiles are matched by `PreconfiguredName` and
   routed by the `device` field in `switchToProfile`.
+- **Bundled build required**: raw `node_modules/` (21MB+) causes silent install
+  failure. Must use `ncc` to create `build/index.js` (157KB bundled).
