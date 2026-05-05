@@ -5471,11 +5471,12 @@ function loadBuiltInProfileMap() {
       // AppIdentifier = untagged; PluginSavedAppIdentifier = already owned by us
       let appId = m.AppIdentifier || m.PluginSavedAppIdentifier;
       if (!appId || appId === '*') {
-        // Fallback: try to infer process name from profile name
-        const lowerName = m.Name.toLowerCase();
-        if (PROFILE_NAME_TO_PROCESS[lowerName]) {
-          map[PROFILE_NAME_TO_PROCESS[lowerName]] = m.Name;
-        }
+        // TODO: auto-detect by profile name — disabled until we decide how to surface it to users.
+        // All switching must be explicit (AppIdentifier or manual patch).
+        // const lowerName = m.Name.toLowerCase();
+        // if (PROFILE_NAME_TO_PROCESS[lowerName]) {
+        //   map[PROFILE_NAME_TO_PROCESS[lowerName]] = m.Name;
+        // }
         seenNames.add(m.Name);
         continue;
       }
