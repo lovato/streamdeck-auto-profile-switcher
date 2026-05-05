@@ -358,15 +358,32 @@ function allTargets() {
   return [...new Set([
     ...appMap.map(e => e.profile).filter(Boolean),
     ...Object.values(builtInMap),
+    ...manualPatches,
   ])];
 }
 
 // Tags every profile the plugin needs to switch to (app-map targets + built-in
 // Smart Profile targets derived from AppIdentifier). Untags any we previously
 // owned but no longer need. Persists the list to profiles.json for deploy.ps1.
-const DATA_DIR       = path.join(process.env.APPDATA, 'Elgato', 'StreamDeck', 'Data', PLUGIN_ID);
-const TAGS_FILE      = path.join(DATA_DIR, 'profiles.json');
-const BUILTIN_ID_FILE = path.join(DATA_DIR, 'builtin-app-ids.json');
+const DATA_DIR          = path.join(process.env.APPDATA, 'Elgato', 'StreamDeck', 'Data', PLUGIN_ID);
+const TAGS_FILE         = path.join(DATA_DIR, 'profiles.json');
+const BUILTIN_ID_FILE   = path.join(DATA_DIR, 'builtin-app-ids.json');
+const MANUAL_PATCH_FILE = path.join(DATA_DIR, 'manual-patches.json');
+
+// Profiles the user explicitly patched via the PI. Persisted so the resync
+// timer never untags them between restarts.
+let manualPatches = new Set();
+
+function loadManualPatches() {
+  try { manualPatches = new Set(JSON.parse(fs.readFileSync(MANUAL_PATCH_FILE, 'utf8'))); } catch { manualPatches = new Set(); }
+}
+
+function saveManualPatches() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(MANUAL_PATCH_FILE, JSON.stringify([...manualPatches]), { encoding: 'utf8' });
+  } catch { /* non-fatal */ }
+}
 
 // Persistent map of profileName → AppIdentifier path, written whenever we tag
 // a profile. Survives StreamDeck manifest restores and lets us recover profiles
@@ -432,6 +449,65 @@ function syncProfileTags(targets) {
       }
     }
   } catch { /* non-fatal */ }
+}
+
+// Returns all profiles with their ownership/tagging status so the PI can show
+// which profiles will work with switchToProfile and which need patching.
+function getProfilesStatus() {
+  const byName = new Map(); // name → best status (deduplicate)
+  const STATUS_PRIORITY = { ready: 0, conflict: 1, smart: 2, plain: 3, other: 4, default: 5 };
+  try {
+    for (const dir of fs.readdirSync(V3_DIR).filter(d => d.endsWith('.sdProfile'))) {
+      const m = readManifest(dir);
+      if (!m?.Name) continue;
+      let status;
+      if (m.InstalledByPluginUUID === PLUGIN_ID) {
+        status = m.AppIdentifier ? 'conflict' : 'ready';
+      } else if (m.InstalledByPluginUUID) {
+        status = 'other';
+      } else if (m.AppIdentifier === '*') {
+        status = 'default';
+      } else if (m.AppIdentifier) {
+        status = 'smart';
+      } else {
+        status = 'plain';
+      }
+      const existing = byName.get(m.Name);
+      if (!existing || (STATUS_PRIORITY[status] ?? 99) < (STATUS_PRIORITY[existing.status] ?? 99)) {
+        byName.set(m.Name, { name: m.Name, status });
+      }
+    }
+  } catch { /* non-fatal */ }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Tags specific profiles by name, regardless of whether they're in allTargets().
+// Used from the PI "Patch" buttons to mark profiles as plugin-owned so that
+// switchToProfile will work for them.
+function patchProfiles(names) {
+  const nameSet = new Set(names);
+  try {
+    for (const dir of fs.readdirSync(V3_DIR).filter(d => d.endsWith('.sdProfile'))) {
+      const mPath = path.join(V3_DIR, dir, 'manifest.json');
+      const m = readManifest(dir);
+      if (!m?.Name || !nameSet.has(m.Name)) continue;
+      if (m.InstalledByPluginUUID && m.InstalledByPluginUUID !== PLUGIN_ID) continue;
+      if (m.AppIdentifier && m.AppIdentifier !== '*') {
+        saveBuiltInId(m.Name, m.AppIdentifier);
+        m.PluginSavedAppIdentifier = m.AppIdentifier;
+        delete m.AppIdentifier;
+      }
+      m.InstalledByPluginUUID = PLUGIN_ID;
+      m.PreconfiguredName     = m.Name;
+      m.ReadOnly              = false;
+      try { fs.writeFileSync(mPath, JSON.stringify(m)); } catch { /* non-fatal */ }
+    }
+  } catch { /* non-fatal */ }
+  for (const n of names) manualPatches.add(n);
+  saveManualPatches();
+  builtInMap = loadBuiltInProfileMap();
+  buildProfileDirMap();
+  syncProfileTags(allTargets());
 }
 
 // ─── Profile detection ────────────────────────────────────────────────────────
@@ -638,6 +714,7 @@ function connect() {
   ws = new WebSocket(`ws://localhost:${PORT}`);
 
   ws.on("open", () => {
+    loadManualPatches();
     builtInMap = loadBuiltInProfileMap();
     buildProfileDirMap();
     // Don't syncProfileTags here — appMap is empty until didReceiveGlobalSettings.
@@ -674,6 +751,7 @@ function connect() {
         buildProfileDirMap();
         syncProfileTags(allTargets());
         sendToPI({ action: "profilesList", profiles: getProfileNames() });
+        sendToPI({ action: "profilesStatus", profiles: getProfilesStatus() });
         break;
 
       case "propertyInspectorDidDisappear":
@@ -697,6 +775,13 @@ function connect() {
         }
         if (msg.payload?.action === "getProfiles") {
           sendToPI({ action: "profilesList", profiles: getProfileNames() });
+        }
+        if (msg.payload?.action === "getProfilesStatus") {
+          sendToPI({ action: "profilesStatus", profiles: getProfilesStatus() });
+        }
+        if (msg.payload?.action === "patchProfiles") {
+          patchProfiles(msg.payload.names || []);
+          sendToPI({ action: "profilesStatus", profiles: getProfilesStatus() });
         }
         break;
 

@@ -160,6 +160,57 @@
       color: #7aabda;
       line-height: 1.5;
     }
+
+    .status-section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 16px;
+      margin-bottom: 6px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid #444;
+    }
+
+    .status-section-header span {
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .profile-status-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 0;
+      border-bottom: 1px solid #333;
+    }
+
+    .profile-status-name {
+      flex: 1;
+      font-size: 12px;
+      color: #ccc;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .profile-status-badge {
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .profile-status-patch {
+      padding: 1px 7px;
+      font-size: 11px;
+      border-radius: 3px;
+      border: 1px solid #555;
+      background: #3a3a3a;
+      color: #ccc;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .profile-status-patch:hover { background: #444; color: #fff; }
   </style>
 </head>
 <body>
@@ -201,12 +252,30 @@
     Use <strong>Test Detection</strong> to find process names and window titles.
   </div>
 
+  <div class="status-section-header">
+    <span>Profile Status</span>
+    <button class="btn" onclick="refreshProfileStatus()" style="padding:2px 8px;font-size:11px;margin:0">Refresh</button>
+  </div>
+  <div id="profiles-status-list"><div style="font-size:11px;color:#666;padding:4px 0">Loading…</div></div>
+  <div id="profiles-patch-bar" style="display:none;margin-top:6px">
+    <button class="btn primary" onclick="patchAllUntagged()">Patch All</button>
+    <span id="profiles-patch-note" style="font-size:11px;color:#888;margin-left:8px"></span>
+  </div>
+  <div id="patch-restart-warning" style="display:none;margin-top:8px;padding:8px 10px;background:#2a1a0a;border-left:3px solid #e0a050;border-radius:0 4px 4px 0;font-size:11px;color:#e0c080;line-height:1.6">
+    <strong>⚠ Restart StreamDeck to apply patches.</strong><br>
+    Right-click the StreamDeck tray icon → <strong>Quit StreamDeck</strong>, then reopen it.<br>
+    Profiles will not switch correctly until StreamDeck reloads the manifest files.
+  </div>
+  <div id="patch-log" style="margin-top:6px;padding:6px 8px;background:#1a1a1a;border-radius:4px;font-size:11px;font-family:monospace;color:#aaa;display:none;max-height:80px;overflow-y:auto"></div>
+
 <script>
   // ── StreamDeck Property Inspector SDK connection ──────────────────────────
-  let sdConnection  = null;
-  let actionContext  = null;
-  let knownProfiles  = [];
-  let lastDetection  = null;
+  let sdConnection      = null;
+  let actionContext      = null;
+  let knownProfiles      = [];
+  let lastDetection      = null;
+  let profilesStatusData = [];
+  let pendingPatch       = false;
 
   const DEFAULT_MAP = [];
 
@@ -244,6 +313,14 @@
         }
 
         if (p?.action === "profilesList")   populateProfileSelects(p.profiles);
+        if (p?.action === "profilesStatus")  {
+          if (pendingPatch) {
+            setPatchNote('✓ Patched — restart StreamDeck to activate', '#7cb87c');
+            document.getElementById('patch-restart-warning').style.display = 'block';
+            pendingPatch = false;
+          }
+          renderProfilesStatus(p.profiles);
+        }
         if (p?.action === "detectionResult") showDetectionResult(p);
       }
     };
@@ -422,6 +499,113 @@
     newRow.scrollIntoView({ behavior: "smooth" });
     newRow.querySelector(".match-input").focus();
   }
+
+  // ── Profile status ────────────────────────────────────────────────────────
+  const STATUS_INFO = {
+    ready:    { label: '✓ ready',        color: '#7cb87c' },
+    conflict: { label: '⚠ needs patch',  color: '#e0a050' },
+    smart:    { label: '○ smart profile', color: '#7aabda' },
+    plain:    { label: '○ untagged',      color: '#999' },
+    other:    { label: '— other plugin',  color: '#555' },
+    default:  { label: '— default',       color: '#555' },
+  };
+
+  function renderProfilesStatus(profiles) {
+    profilesStatusData = profiles || [];
+    const list     = document.getElementById('profiles-status-list');
+    const patchBar = document.getElementById('profiles-patch-bar');
+    const patchNote = document.getElementById('profiles-patch-note');
+
+    if (!profilesStatusData.length) {
+      list.innerHTML = '<div style="font-size:11px;color:#666;padding:4px 0">No profiles found</div>';
+      patchBar.style.display = 'none';
+      return;
+    }
+
+    list.innerHTML = profilesStatusData.map((p, i) => {
+      const info     = STATUS_INFO[p.status] || { label: p.status, color: '#888' };
+      const canPatch = p.status === 'smart' || p.status === 'plain' || p.status === 'conflict';
+      const safeName = p.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const patchBtn = canPatch
+        ? `<button class="profile-status-patch" data-patch-index="${i}">Patch</button>`
+        : '';
+      return `<div class="profile-status-row">
+        <span class="profile-status-name" title="${safeName}">${safeName}</span>
+        <span class="profile-status-badge" style="color:${info.color}">${info.label}</span>
+        ${patchBtn}
+      </div>`;
+    }).join('');
+
+    const patchable = profilesStatusData.filter(p =>
+      p.status === 'smart' || p.status === 'plain' || p.status === 'conflict'
+    );
+    patchBar.style.display = 'block';
+    if (patchable.length) {
+      patchNote.textContent = `${patchable.length} profile${patchable.length !== 1 ? 's' : ''} can be patched`;
+      patchNote.style.color = '#888';
+    } else {
+      patchNote.textContent = '✓ all profiles ready';
+      patchNote.style.color = '#7cb87c';
+    }
+  }
+
+  function refreshProfileStatus() {
+    if (!sdConnection) return;
+    sdConnection.send(JSON.stringify({
+      event: 'sendToPlugin', context: actionContext,
+      action: 'com.lovato.autoprofileswitcher.monitor',
+      payload: { action: 'getProfilesStatus' },
+    }));
+  }
+
+  function setPatchNote(msg, color) {
+    const el = document.getElementById('profiles-patch-note');
+    if (el) { el.textContent = msg; el.style.color = color || '#888'; }
+    const log = document.getElementById('patch-log');
+    if (log) {
+      log.style.display = 'block';
+      const line = document.createElement('div');
+      line.style.color = color || '#aaa';
+      line.textContent = new Date().toLocaleTimeString() + '  ' + msg;
+      log.appendChild(line);
+      log.scrollTop = log.scrollHeight;
+    }
+  }
+
+  function patchProfiles(names) {
+    setPatchNote('① click received', '#e0a050');
+    if (!sdConnection) { setPatchNote('✗ no connection', '#e05555'); return; }
+    if (sdConnection.readyState !== WebSocket.OPEN) { setPatchNote('✗ ws not open (state=' + sdConnection.readyState + ')', '#e05555'); return; }
+    setPatchNote('② sending to plugin…', '#e0a050');
+    pendingPatch = true;
+    try {
+      sdConnection.send(JSON.stringify({
+        event: 'sendToPlugin', context: actionContext,
+        action: 'com.lovato.autoprofileswitcher.monitor',
+        payload: { action: 'patchProfiles', names },
+      }));
+      setPatchNote('③ sent, waiting for response…', '#7aabda');
+    } catch (err) {
+      setPatchNote('✗ send error: ' + err.message, '#e05555');
+    }
+  }
+
+  function patchAllUntagged() {
+    const names = profilesStatusData
+      .filter(p => p.status === 'smart' || p.status === 'plain' || p.status === 'conflict')
+      .map(p => p.name);
+    if (!names.length) { setPatchNote('nothing to patch', '#888'); return; }
+    patchProfiles(names);
+  }
+
+  // Event delegation for dynamically-rendered Patch buttons
+  document.getElementById('profiles-status-list').addEventListener('click', function(e) {
+    const btn = e.target.closest('[data-patch-index]');
+    if (!btn) return;
+    const idx = parseInt(btn.dataset.patchIndex, 10);
+    const p = profilesStatusData[idx];
+    if (p) patchProfiles([p.name]);
+  });
 
   // ── Test detection ────────────────────────────────────────────────────────
   function testDetection() {
