@@ -2,7 +2,7 @@
   "Author": "Marco Lovato",
   "Category": "Auto Profile Switcher",
   "CategoryIcon": "icons/plugin",
-  "CodePath": "plugin.html",
+  "CodePath": "build/index.js",
   "Description": "Switches StreamDeck profiles based on the active foreground window. Supports MSIX/WindowsApps (Teams, WhatsApp, Terminal) and window title matching — both impossible with the built-in Smart Profile feature.",
   "Name": "Auto Profile Switcher",
   "Icon": "icons/plugin",

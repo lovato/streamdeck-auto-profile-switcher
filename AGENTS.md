@@ -234,15 +234,15 @@ npx streamdeck pack . -o ../dist/ --force --no-update-check
 
 Only the bundled `build/` directory should be in the package, not raw `node_modules/`.
 
-## Why `plugin.html` wrapper is required
+## Why `CodePath` points to `build/index.js`
 
-StreamDeck 7.4+ appears to require `CodePath` to point to an HTML file
-(not JS directly). The HTML file simply loads the bundled JavaScript:
-```html
-<script src="build/index.js"></script>
-```
+StreamDeck runs Node.js plugins by executing the file at `CodePath` directly.
+The manifest uses `"CodePath": "build/index.js"` — the ncc-bundled output that
+includes `ws` and all other dependencies in a single self-contained file.
 
-Without this wrapper, the plugin may fail to install or load.
+`plugin.html` is unused and was a dead end from a previous attempt. Do not
+set `CodePath` to an HTML file for a Node.js plugin — StreamDeck would not
+know how to run it.
 
 ## Known edge cases / limitations
 
