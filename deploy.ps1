@@ -115,8 +115,21 @@ if (Test-Path $OldPluginDir) {
     Remove-Item -Recurse -Force $OldPluginDir
     Write-Host "    Removed old plugin directory"
 }
-Copy-Item -Path $PluginDir -Destination $PluginsPath -Recurse -Force
-Write-Host "    Deployed: $PluginsPath\$PluginDir"
+# Remove symlinked .bin directory to avoid copy errors from WSL
+$binDir = Join-Path $PluginDir "node_modules\.bin"
+if (Test-Path $binDir) {
+    Remove-Item -Recurse -Force $binDir -ErrorAction SilentlyContinue
+    Write-Host "    Removed symlinked .bin directory"
+}
+
+# Use robocopy for reliable copying (handles WSL paths better than Copy-Item)
+$source = Join-Path $PWD.ProviderPath $PluginDir
+$dest = Join-Path $PluginsPath $PluginDir
+robocopy $source $dest /E /R:1 /W:1 /NFL /NDL /NJH /NJS /XF *.symlink
+if ($LASTEXITCODE -ge 8) {
+    Write-Error "robocopy failed with exit code $LASTEXITCODE"
+}
+Write-Host "    Deployed: $dest"
 
 Write-Host "==> Syncing profile ownership..."
 $TagsFile    = Join-Path $DataDir "profiles.json"

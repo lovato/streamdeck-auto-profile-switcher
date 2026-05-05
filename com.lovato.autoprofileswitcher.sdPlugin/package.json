@@ -6,10 +6,13 @@
   "author": "Marco Lovato",
   "license": "MIT",
   "dependencies": {
+    "@elgato/streamdeck": "^2.1.0",
+    "@fnando/streamdeck": "^0.1.0-alpha.7",
     "ws": "^8.17.1"
   },
   "devDependencies": {
-    "@elgato/cli": "^1.6.0"
+    "@elgato/cli": "^1.6.0",
+    "@vercel/ncc": "^0.38.4"
   },
   "engines": {
     "node": ">=20"
