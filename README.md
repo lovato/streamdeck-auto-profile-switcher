@@ -57,7 +57,51 @@ Auto-switching is paused while the configuration panel is open. Clicking on matc
 
 ---
 
-## Installation
+## User Setup
+
+### 1. Install the plugin
+
+Install the latest file manually or download it from the [Elgato Marketplace](https://marketplace.elgato.com/stream-deck/plugins).
+
+### 1. Add the action to your deck
+
+Drag **"Auto Profile Switcher"** from the actions list onto any button on any profile. It only needs to exist somewhere — it runs as a background monitor, not as a button you press. I'd recommend placing it on a dedicated "Settings" profile or somewhere out of the way to avoid accidental clicks, but it's up to you.
+
+### 2. Create a new profile
+
+To try it, create a new profile with a different icon or something so you can see when it switches. You can create as many profiles as you want — the plugin will show them all in the dropdown when configuring rules.
+
+### 3. Open another tool
+
+We will use Calculator in this example to test the detection and create rules in the next steps. Just have it open and visible on your desktop.
+
+### 4. Test Detection
+
+Click the button you placed in step 1, then click **Test detection** in the configuration panel. You have 3 seconds to switch to the Calculator window. After that, the panel will show you the process name and window title of the focused app. This is how you find the exact process name to use in your rules.
+
+### 5. Add rules
+
+Now that you know the process name for Calculator, you can add a rule to switch to a specific profile whenever Calculator is focused. Click **+ Add this to App List** in the configuration panel to create a new rule pre-filled with the detected process name and window title. Adjust the profile dropdown to select the profile you want to switch to when Calculator is active.
+
+### 6. Switch Target Profile
+
+Go to the Plugin Settings and change the profile to the one you just created to switch to when Calculator is active. And hit *Save* and Close Elgato StreamDeck. If you leave it open, there is no auto-switching since it is considered you are in dev mode.
+
+### 7. Patch the Profile
+
+If this didn't work alone, you are required to "take over" the profile by tagging it as plugin-owned. To do that, get to the end of the configuration panel and click the button **Patch** next to the profile name. This is required for the plugin to have permission to switch to that profile. 
+
+### 8. Restart StreamDeck
+
+After patching, you need to restart StreamDeck for the changes to take effect. You must quit the application, and not just close the window, to ensure a full restart. You can go to the icon on the system tray, right-click it, and select "Quit StreamDeck". Then start StreamDeck again from the Start menu or desktop shortcut.
+
+The moment you do that, because StreamDeck will be opened, the plugin will not yet start switching profiles. Now, you can just hit the **Close** button to get the StreamDeck app minimized to the system tray.
+
+Switch to Calculator and see the profile switch in action!
+
+---
+
+## Developer Setup
 
 ### Option A — WSL or Linux (recommended for development)
 
@@ -87,47 +131,6 @@ cd streamdeck-windowsapps-plugin
 2. Run `npm install` inside the plugin folder
 3. Run `npx @vercel/ncc build app.js --out build/` inside the plugin folder
 4. Restart StreamDeck
-
----
-
-## Setup
-
-### 1. Add the action to your deck
-
-Drag **"Auto Profile Switcher"** from the actions list onto any button on any profile. It only needs to exist somewhere — it runs as a background monitor, not as a button you press.
-
-### 2. Open the configuration panel
-
-Click the button you just placed. The configuration panel opens on the right.
-
-### 3. Configure your rules
-
-Each row maps a focused window to a StreamDeck profile:
-
-| Column | Description |
-|---|---|
-| **Process** | Partial match against the process name (case-insensitive). Use **Test detection** to find this. |
-| **Title match** | Optional partial match against the window title. Leave blank to match any window from that process. |
-| **Profile** | Dropdown of your actual StreamDeck profiles. |
-
-Default rules (edit or remove as needed):
-
-| Process | Title | Profile |
-|---|---|---|
-| `ms-teams` | | `Teams` |
-| `whatsapp` | | `WhatsApp` |
-| `windowsterminal` | | `Terminal` |
-
-### 4. Use Test detection to find process names
-
-1. Click **Test detection** in the configuration panel
-2. You have 3 seconds — switch to the app you want to match
-3. The panel shows the **process name** and **window title** of that app
-4. Click **+ Add to app list** to create a rule from the result, then edit as needed
-
-### 5. Save
-
-Click **Save**. Switching starts immediately — no restart required.
 
 ---
 
