@@ -150,10 +150,6 @@ function getActiveWindowInfo() {
   });
 }
 
-function getActiveProcessName() {
-  return getActiveWindowInfo().then(({ proc }) => proc);
-}
-
 // ─── ProfilesV3 helpers ────────────────────────────────────────────────────────────────────────────
 const V3_DIR    = path.join(process.env.APPDATA, 'Elgato', 'StreamDeck', 'ProfilesV3');
 const PLUGIN_ID = 'com.lovato.autoprofileswitcher';
@@ -193,119 +189,6 @@ function getProfileNames() {
 // patterns. This lets the plugin handle Chrome, VSCode, etc. out of the box.
 let builtInMap = {};  // { processName → profileName }
 
-// Common profile name → process name mappings for profiles without AppIdentifier.
-// Only used as a fallback when Smart Profile wasn't configured.
-const PROFILE_NAME_TO_PROCESS = {
-  'chrome': 'chrome',
-  'google chrome': 'chrome',
-  'vscode': 'code',
-  'visual studio code': 'code',
-  'visual studio': 'devenv',
-  'firefox': 'firefox',
-  'microsoft edge': 'msedge',
-  'edge': 'msedge',
-  'notepad++': 'notepad++',
-  'notepad': 'notepad',
-  'spotify': 'spotify',
-  'discord': 'discord',
-  'slack': 'slack',
-  'zoom': 'zoom',
-  'teams': 'teams',
-  'whatsapp': 'whatsapp',
-  'windows terminal': 'windowsterminal',
-  'terminal': 'windowsterminal',
-  'powershell': 'powershell',
-  'cmd': 'cmd',
-  'command prompt': 'cmd',
-  'explorer': 'explorer',
-  'file explorer': 'explorer',
-  'steam': 'steam',
-  'epic games launcher': 'epicgameslauncher',
-  'obs': 'obs64',
-  'obs studio': 'obs64',
-  'photoshop': 'photoshop',
-  'adobe photoshop': 'photoshop',
-  'illustrator': 'illustrator',
-  'adobe illustrator': 'illustrator',
-  'premiere': 'premiere',
-  'adobe premiere': 'premiere',
-  'after effects': 'aftereffects',
-  'adobe after effects': 'aftereffects',
-  'figma': 'figma',
-  'sketch': 'sketch',
-  'xd': 'adobexd',
-  'adobe xd': 'adobexd',
-  'sublime text': 'sublime_text',
-  'atom': 'atom',
-  'intellij idea': 'idea64',
-  'intellij': 'idea64',
-  'webstorm': 'webstorm64',
-  'pycharm': 'pycharm64',
-  'rider': 'rider64',
-  'clion': 'clion64',
-  'android studio': 'studio64',
-  'xcode': 'xcode',
-  'safari': 'safari',
-  'opera': 'opera',
-  'brave': 'brave',
-  'vivaldi': 'vivaldi',
-  'tor browser': 'firefox',
-  'calc': 'calc',
-  'calculator': 'calc',
-  'paint': 'mspaint',
-  'snipping tool': 'snippingtool',
-  'task manager': 'taskmgr',
-  'settings': 'systemsettings',
-  'control panel': 'control',
-  'run': 'explorer',
-  'search': 'searchhost',
-  'cortana': 'searchhost',
-  'widgets': 'widgets',
-  'weather': 'widgets',
-  'news': 'widgets',
-  'calendar': 'windowscalendar',
-  'mail': 'outlook',
-  'microsoft mail': 'outlook',
-  'microsoft outlook': 'outlook',
-  'outlook': 'outlook',
-  'microsoft store': 'winstore',
-  'store': 'winstore',
-  'xbox': 'xbox',
-  'game bar': 'gamebar',
-  'gamebar': 'gamebar',
-  'minecraft': 'minecraft',
-  'fortnite': 'fortnite',
-  'league of legends': 'leagueoflegends',
-  'valorant': 'valorant',
-  'overwatch': 'overwatch',
-  'counter-strike': 'csgo',
-  'cs:go': 'csgo',
-  'csgo': 'csgo',
-  'cs2': 'cs2',
-  'apex legends': 'apex',
-  'apex': 'apex',
-  'rocket league': 'rocketleague',
-  'rocketleague': 'rocketleague',
-  'elden ring': 'eldenring',
-  'cyberpunk': 'cyberpunk2077',
-  'cyberpunk 2077': 'cyberpunk2077',
-  'baldur\'s gate 3': 'bg3',
-  'bg3': 'bg3',
-  'starfield': 'starfield',
-  'fallout': 'fallout4',
-  'fallout 4': 'fallout4',
-  'skyrim': 'skyrimse',
-  'the elder scrolls': 'skyrimse',
-  'witcher': 'witcher3',
-  'the witcher 3': 'witcher3',
-  'witcher 3': 'witcher3',
-  'red dead redemption': 'rdr2',
-  'rdr2': 'rdr2',
-  'gta': 'gta5',
-  'gta v': 'gta5',
-  'grand theft auto': 'gta5',
-};
-
 function loadBuiltInProfileMap() {
   loadSavedBuiltInIds();
   const map = {};
@@ -319,7 +202,8 @@ function loadBuiltInProfileMap() {
       let appId = m.AppIdentifier || m.PluginSavedAppIdentifier;
       if (!appId || appId === '*') {
         // TODO: auto-detect by profile name — disabled until we decide how to surface it to users.
-        // All switching must be explicit (AppIdentifier or manual patch).
+        // See lib/profile-name-fallback.js. All switching must be explicit (AppIdentifier or manual patch).
+        // const { PROFILE_NAME_TO_PROCESS } = require('./lib/profile-name-fallback');
         // const lowerName = m.Name.toLowerCase();
         // if (PROFILE_NAME_TO_PROCESS[lowerName]) {
         //   map[PROFILE_NAME_TO_PROCESS[lowerName]] = m.Name;
