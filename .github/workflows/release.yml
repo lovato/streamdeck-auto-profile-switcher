@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    branches: [release]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: com.lovato.autoprofileswitcher.sdPlugin/package-lock.json
+
+      - name: Read version from manifest
+        id: version
+        run: |
+          manifest_version=$(jq -r '.Version' com.lovato.autoprofileswitcher.sdPlugin/manifest.json)
+          tag="v$(echo "$manifest_version" | cut -d. -f1-3)"
+          echo "manifest=$manifest_version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if tag already exists
+        id: skip
+        run: |
+          tag="${{ steps.version.outputs.tag }}"
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Tag $tag already exists. Bump manifest.json Version to release a new version."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install dependencies
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: com.lovato.autoprofileswitcher.sdPlugin
+        run: npm ci
+
+      - name: Lint, test, and build
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: com.lovato.autoprofileswitcher.sdPlugin
+        run: |
+          npm run check
+          npx @vercel/ncc build app.js --out build/
+
+      - name: Package plugin
+        if: steps.skip.outputs.skip != 'true'
+        working-directory: com.lovato.autoprofileswitcher.sdPlugin
+        run: |
+          mkdir -p ../dist
+          npx streamdeck pack . -o ../dist/ \
+            --version "${{ steps.version.outputs.manifest }}" \
+            --force --no-update-check
+
+      - name: Create tag and GitHub Release
+        if: steps.skip.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ steps.version.outputs.tag }}"
+          artifact=(dist/*.streamDeckPlugin)
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -m "Release $tag"
+          git push origin "$tag"
+
+          gh release create "$tag" "${artifact[@]}" \
+            --title "Release $tag" \
+            --generate-notes
