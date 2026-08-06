@@ -252,3 +252,4 @@ For more details, see the [Elgato Marketplace documentation](https://docs.elgato
 ## License
 
 MIT
+

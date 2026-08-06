@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "description": "StreamDeck plugin to auto-switch profiles for WindowsApps (MSIX) packages",
   "main": "app.js",
+  "scripts": {
+    "lint": "eslint .",
+    "test": "node --test test/detect.test.js test/smoke.test.js",
+    "check": "npm run lint && npm run test"
+  },
   "author": "Marco Lovato",
   "license": "MIT",
   "dependencies": {
@@ -10,7 +15,10 @@
   },
   "devDependencies": {
     "@elgato/cli": "^1.7.4",
-    "@vercel/ncc": "^0.38.4"
+    "@eslint/js": "^9.39.2",
+    "@vercel/ncc": "^0.38.4",
+    "eslint": "^9.39.2",
+    "globals": "^16.5.0"
   },
   "engines": {
     "node": ">=20"

@@ -40,8 +40,27 @@ tasks:
     cmds:
       - npm install
 
+  lint:
+    desc: Run ESLint on plugin source
+    deps: [deps]
+    dir: '{{.PLUGIN_DIR}}'
+    cmds:
+      - npm run lint
+
+  test:
+    desc: Run Node.js test runner
+    deps: [deps]
+    dir: '{{.PLUGIN_DIR}}'
+    cmds:
+      - npm run test
+
+  check:
+    desc: Run lint and tests
+    deps: [lint, test]
+
   build:
     desc: Bundle plugin dependencies into build/index.js using ncc
+    deps: [check]
     dir: '{{.PLUGIN_DIR}}'
     cmds:
       - npx @vercel/ncc build app.js --out build/
