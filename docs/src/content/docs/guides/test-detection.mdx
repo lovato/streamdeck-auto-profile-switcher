@@ -1,0 +1,28 @@
+---
+title: Test detection
+description: Identify process names and window titles for new rules.
+---
+
+**Test detection** lives in the property inspector. It captures the foreground window after a short countdown.
+
+## How to run it
+
+1. Open the Auto Profile Switcher property inspector.
+2. Click **Test detection**.
+3. You have **3 seconds** to focus the target application.
+4. Results stay visible: **process name**, **window title**, and matched profile (if any).
+
+## While testing
+
+- Auto-switching is **disabled** while the property inspector is open — you will not lose the panel mid-configuration.
+- Use **+ Add to app list** to turn the result into a new rule immediately.
+
+## Troubleshooting
+
+| Symptom | Likely cause |
+| --- | --- |
+| Empty process name | Window has no owning process (rare) |
+| `ApplicationFrameHost` | UWP shell — focus the inner app content |
+| Wrong process | Some apps spawn helper processes — try focusing the main window |
+
+Run detection again after focusing the exact window you care about.

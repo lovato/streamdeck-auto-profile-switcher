@@ -1,0 +1,35 @@
+---
+title: Patching profiles
+description: Tag profiles as plugin-owned so switchToProfile works.
+---
+
+Stream Deck silently ignores `switchToProfile` unless the target profile's manifest contains `InstalledByPluginUUID` matching this plugin.
+
+**Patching** adds that tag (and migrates `AppIdentifier` when needed).
+
+## When to patch
+
+- A rule points to a profile but switching never happens.
+- The profile status in the property inspector shows **plain** or **smart** instead of **ready**.
+
+## How to patch
+
+1. Open the property inspector.
+2. Scroll to the profile status list.
+3. Click **Patch** next to the profile name.
+4. **Quit and restart** Stream Deck (tray → Quit, not just close the window).
+
+## Status meanings
+
+| Status | Meaning |
+| --- | --- |
+| **ready** | Plugin-owned, safe to switch |
+| **conflict** | Plugin-owned but `AppIdentifier` was restored — will be re-migrated |
+| **smart** | Built-in Smart Profile only — patch to enable plugin switching |
+| **plain** | No `AppIdentifier` — patch to enable plugin switching |
+| **default** | Default Profile (`*`) — do not patch |
+| **other** | Owned by another plugin |
+
+## Force patch
+
+Use **Force patch** when a profile is owned by another plugin and you intentionally want this plugin to take over.

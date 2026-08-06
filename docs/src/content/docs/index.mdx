@@ -1,0 +1,50 @@
+---
+title: Auto Profile Switcher
+description: Smart profile switching for Stream Deck on Windows — MSIX apps, window titles, and more.
+template: splash
+hero:
+  tagline: Switch Stream Deck profiles from the foreground window — including MSIX apps the built-in Smart Profile feature cannot see.
+  image:
+    file: ../../assets/logo.png
+  actions:
+    - text: Get started
+      link: /getting-started/
+      icon: right-arrow
+    - text: Elgato Marketplace
+      link: https://marketplace.elgato.com/stream-deck/plugins
+      icon: external
+      variant: minimal
+    - text: GitHub
+      link: https://github.com/lovato/streamdeck-auto-profile-switcher
+      icon: github
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Why this plugin?
+
+Elgato's Smart Profiles match apps by executable path. **Teams**, **WhatsApp**, and **Windows Terminal** ship as MSIX packages under `WindowsApps` — paths that change on every update, so Stream Deck often cannot detect them.
+
+Auto Profile Switcher uses Win32 `GetForegroundWindow` directly and adds **window title matching** — something Smart Profiles cannot do at all.
+
+<CardGrid stagger>
+	<Card title="MSIX / WindowsApps" icon="rocket">
+		Detect Teams, WhatsApp, Terminal, and any packaged app by process name.
+	</Card>
+	<Card title="Title matching" icon="document">
+		Route `windowsterminal` + `PowerShell` to a different profile than `windowsterminal` + `Ubuntu`.
+	</Card>
+	<Card title="Hybrid mode" icon="setting">
+		Works alongside built-in Smart Profiles — releases control when no rule matches.
+	</Card>
+	<Card title="Test detection" icon="magnifier">
+		Find the exact process name and window title without leaving Stream Deck.
+	</Card>
+</CardGrid>
+
+## Requirements
+
+- Windows 10/11
+- Stream Deck 6.9+
+- Node.js 20+ (bundled with Stream Deck)

@@ -2,6 +2,7 @@ version: '3'
 
 vars:
   PLUGIN_DIR: com.lovato.autoprofileswitcher.sdPlugin
+  DOCS_DIR: docs
 
 tasks:
   default:
@@ -107,3 +108,30 @@ tasks:
     cmds:
       - mkdir -p ../dist
       - npx streamdeck pack . -o ../dist/ --version $(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//') --force --no-update-check
+
+  docs:deps:
+    desc: Install npm dependencies for the docs site
+    dir: '{{.DOCS_DIR}}'
+    cmds:
+      - npm install
+
+  docs:dev:
+    desc: Run Starlight docs site locally with live reload
+    deps: [docs:deps]
+    dir: '{{.DOCS_DIR}}'
+    cmds:
+      - npm run dev
+
+  docs:build:
+    desc: Build static docs site for GitHub Pages
+    deps: [docs:deps]
+    dir: '{{.DOCS_DIR}}'
+    cmds:
+      - npm run build
+
+  docs:preview:
+    desc: Preview the production docs build locally
+    deps: [docs:build]
+    dir: '{{.DOCS_DIR}}'
+    cmds:
+      - npm run preview

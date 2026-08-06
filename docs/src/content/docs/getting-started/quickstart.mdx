@@ -1,0 +1,45 @@
+---
+title: Quick start
+description: Configure your first profile rule with Calculator as an example.
+---
+
+This walkthrough switches to a dedicated profile when Calculator is focused.
+
+## 1. Add the action
+
+Drag **Auto Profile Switcher** from the actions list onto any key.
+
+## 2. Create a test profile
+
+Create a new Stream Deck profile with a distinct icon so you can see when switching works.
+
+## 3. Open Calculator
+
+Have Calculator visible on your desktop for the detection step.
+
+## 4. Test detection
+
+1. Click the Auto Profile Switcher key to open the property inspector.
+2. Click **Test detection**.
+3. Within 3 seconds, focus the Calculator window.
+4. The panel shows the **process name** and **window title**.
+
+## 5. Add a rule
+
+Click **+ Add this to App List** to pre-fill a rule, then pick your test profile from the dropdown.
+
+## 6. Save and close Stream Deck
+
+Save settings and **fully quit** Stream Deck (system tray → Quit). Re-open and minimize to the tray.
+
+Auto-switching is paused while the property inspector is open.
+
+## 7. Patch the profile
+
+If switching does not work, scroll to the profile list in the property inspector and click **Patch** next to the target profile. This tags it as plugin-owned so `switchToProfile` is allowed.
+
+Restart Stream Deck again after patching.
+
+## 8. Try it
+
+Focus Calculator — your Stream Deck profile should switch.

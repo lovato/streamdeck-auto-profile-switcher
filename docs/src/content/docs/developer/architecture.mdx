@@ -1,0 +1,40 @@
+---
+title: Architecture
+description: How profile detection and switching work under the hood.
+---
+
+```
+Stream Deck starts
+       │
+       ▼
+Plugin connects via WebSocket
+       │
+       ├─ Loads app-map rules from global settings
+       ├─ Mirrors built-in Smart Profile targets (AppIdentifier)
+       └─ Polls every 150 ms (persistent PowerShell → Win32)
+              │
+              ▼
+       GetForegroundWindow → process name + window title
+              │
+              ▼
+       Match rules (title-specific → process-only → built-in map)
+              │
+              ├─ Match  → switchToProfile("ProfileName")
+              └─ No match → switchToProfile("")  (release to built-in)
+```
+
+## Stability
+
+A process must appear in **two consecutive polls** (~300 ms) before switching. This avoids false triggers during rapid alt-tab.
+
+## Plugin-owned profiles
+
+`switchToProfile` only works when the target manifest includes `InstalledByPluginUUID` for this plugin. The plugin migrates `AppIdentifier` to `PluginSavedAppIdentifier` to avoid conflicts with Smart Profiles.
+
+## Stack depth
+
+Each plugin switch pushes onto Stream Deck's internal stack. `switchToProfile("")` pops one level — the plugin tracks depth and may call it multiple times when peeling back through several plugin-owned profiles.
+
+## Further reading
+
+See `AGENTS.md` in the repository for undocumented Stream Deck behaviour (pre-release delay, manifest restoration, Default Profile handling, …).

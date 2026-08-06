@@ -1,0 +1,39 @@
+---
+title: Adding rules
+description: Configure app-map rules from test detection or manually.
+---
+
+## From test detection (easiest)
+
+1. Open the property inspector for Auto Profile Switcher.
+2. Click **Test detection** and focus the target app within 3 seconds.
+3. Click **+ Add this to App List** — process name and title are pre-filled.
+4. Choose the target profile from the dropdown.
+5. Save settings.
+
+## Manual entry
+
+Each rule has:
+
+| Field | Meaning |
+| --- | --- |
+| **Match** | Process name substring (e.g. `calc`, `windowsterminal`) |
+| **Title match** | Optional window title substring |
+| **Profile** | Stream Deck profile to activate |
+
+Leave **Title match** empty for a process-only rule.
+
+## Finding process names
+
+**Test detection** is the recommended tool. For apps without a visible window:
+
+```powershell
+Get-Process |
+  Where-Object { $_.MainWindowTitle -ne "" } |
+  Select-Object Name, MainWindowTitle |
+  Sort-Object Name
+```
+
+## Rule ordering
+
+Put **title-specific** rules above **process-only** fallbacks in the list. The plugin evaluates title rules first.
