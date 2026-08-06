@@ -1,6 +1,33 @@
 /******/ (() => { // webpackBootstrap
 /******/ 	var __webpack_modules__ = ({
 
+/***/ 361:
+/***/ ((module) => {
+
+/**
+ * Profile detection — title-specific app-map rules, then process-only, then built-in map.
+ */
+function detectProfile(proc, title = '', appMap = [], builtInMap = {}) {
+  const lTitle = title.toLowerCase();
+  for (const entry of appMap) {
+    if (!entry.titleMatch) continue;
+    if (proc.includes(entry.match.toLowerCase()) && lTitle.includes(entry.titleMatch.toLowerCase())) {
+      return entry.profile;
+    }
+  }
+  for (const entry of appMap) {
+    if (entry.titleMatch) continue;
+    if (proc.includes(entry.match.toLowerCase())) return entry.profile;
+  }
+  if (builtInMap[proc]) return builtInMap[proc];
+  return null;
+}
+
+module.exports = { detectProfile };
+
+
+/***/ }),
+
 /***/ 354:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
@@ -5171,6 +5198,7 @@ const WebSocket = __nccwpck_require__(354);
 const { spawn } = __nccwpck_require__(317);
 const fs         = __nccwpck_require__(896);
 const path       = __nccwpck_require__(928);
+const { detectProfile: detectProfileFromMaps } = __nccwpck_require__(361);
 
 // ─── StreamDeck connection args ───────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -5314,7 +5342,7 @@ const PLUGIN_ID = 'com.lovato.autoprofileswitcher';
 function readManifest(dir) {
   try {
     const raw = fs.readFileSync(path.join(V3_DIR, dir, 'manifest.json'), 'utf8')
-      .replace(/^﻿/, '');
+      .replace(/^\uFEFF/, '');
     return JSON.parse(raw);
   } catch { return null; }
 }
@@ -5666,24 +5694,8 @@ function patchProfiles(names, force = false) {
 }
 
 // ─── Profile detection ────────────────────────────────────────────────────────
-// Two-pass: title-specific entries win over process-only entries.
 function detectProfile(proc, title = '') {
-  const lTitle = title.toLowerCase();
-  // Pass 1 — entries that also require a title match (more specific)
-  for (const entry of appMap) {
-    if (!entry.titleMatch) continue;
-    if (proc.includes(entry.match.toLowerCase()) && lTitle.includes(entry.titleMatch.toLowerCase())) {
-      return entry.profile;
-    }
-  }
-  // Pass 2 — entries with no title requirement (generic fallback)
-  for (const entry of appMap) {
-    if (entry.titleMatch) continue;
-    if (proc.includes(entry.match.toLowerCase())) return entry.profile;
-  }
-  // Pass 3 — built-in Smart Profile apps (derived from AppIdentifier in manifests)
-  if (builtInMap[proc]) return builtInMap[proc];
-  return null;
+  return detectProfileFromMaps(proc, title, appMap, builtInMap);
 }
 
 // ─── Profile directory index ──────────────────────────────────────────────────

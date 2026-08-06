@@ -17,6 +17,7 @@ const WebSocket = require("ws");
 const { spawn } = require("child_process");
 const fs         = require("fs");
 const path       = require("path");
+const { detectProfile: detectProfileFromMaps } = require("./lib/detect");
 
 // ─── StreamDeck connection args ───────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -160,7 +161,7 @@ const PLUGIN_ID = 'com.lovato.autoprofileswitcher';
 function readManifest(dir) {
   try {
     const raw = fs.readFileSync(path.join(V3_DIR, dir, 'manifest.json'), 'utf8')
-      .replace(/^﻿/, '');
+      .replace(/^\uFEFF/, '');
     return JSON.parse(raw);
   } catch { return null; }
 }
@@ -512,24 +513,8 @@ function patchProfiles(names, force = false) {
 }
 
 // ─── Profile detection ────────────────────────────────────────────────────────
-// Two-pass: title-specific entries win over process-only entries.
 function detectProfile(proc, title = '') {
-  const lTitle = title.toLowerCase();
-  // Pass 1 — entries that also require a title match (more specific)
-  for (const entry of appMap) {
-    if (!entry.titleMatch) continue;
-    if (proc.includes(entry.match.toLowerCase()) && lTitle.includes(entry.titleMatch.toLowerCase())) {
-      return entry.profile;
-    }
-  }
-  // Pass 2 — entries with no title requirement (generic fallback)
-  for (const entry of appMap) {
-    if (entry.titleMatch) continue;
-    if (proc.includes(entry.match.toLowerCase())) return entry.profile;
-  }
-  // Pass 3 — built-in Smart Profile apps (derived from AppIdentifier in manifests)
-  if (builtInMap[proc]) return builtInMap[proc];
-  return null;
+  return detectProfileFromMaps(proc, title, appMap, builtInMap);
 }
 
 // ─── Profile directory index ──────────────────────────────────────────────────
