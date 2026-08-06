@@ -61,7 +61,7 @@ Auto-switching is paused while the configuration panel is open. Clicking on matc
 
 ### 1. Install the plugin
 
-Install the latest file manually or download it from the [Elgato Marketplace](https://marketplace.elgato.com/stream-deck/plugins).
+Install the latest file manually or download it from the [Elgato Marketplace](https://marketplace.elgato.com/product/auto-profile-switcher-7fb50ad5-66e7-4a0e-9567-46169823fcd3).
 
 ### 1. Add the action to your deck
 

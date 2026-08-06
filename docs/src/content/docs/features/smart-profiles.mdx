@@ -1,0 +1,25 @@
+---
+title: Hybrid Smart Profiles
+description: How the plugin cooperates with Stream Deck built-in profile switching.
+---
+
+Auto Profile Switcher is designed to **extend** Smart Profiles, not replace them.
+
+## Division of labour
+
+| Layer | Handles |
+| --- | --- |
+| This plugin | MSIX apps, title rules, profiles you explicitly configure |
+| Stream Deck built-in | Standard executables with `AppIdentifier` in profile manifests |
+
+## Releasing control
+
+When the foreground app does not match any plugin rule, the plugin calls `switchToProfile("")`. That pops the plugin override stack and lets the built-in Smart Profile logic run on the next focus change.
+
+## Profile ownership
+
+Stream Deck only honours `switchToProfile` for profiles tagged with this plugin's UUID (`InstalledByPluginUUID`). The plugin migrates `AppIdentifier` → `PluginSavedAppIdentifier` so Smart Profile and plugin ownership do not conflict.
+
+The **Default Profile** (`AppIdentifier = "*"`) is intentionally left unowned — `switchToProfile("")` reverts to whatever was active before the plugin took over.
+
+See [Patching profiles](/guides/patching-profiles/) for the property-inspector workflow.

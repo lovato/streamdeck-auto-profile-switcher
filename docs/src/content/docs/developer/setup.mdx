@@ -1,0 +1,47 @@
+---
+title: Developer setup
+description: Build and deploy the plugin from WSL or Windows.
+---
+
+## WSL / Linux (recommended)
+
+```bash
+# Install go-task once
+brew install go-task   # or see taskfile.dev
+
+git clone https://github.com/lovato/streamdeck-auto-profile-switcher
+cd streamdeck-auto-profile-switcher
+task hooks:install    # optional: enable git hooks
+task deploy           # npm install, build, deploy.ps1, restart StreamDeck
+```
+
+`task deploy` bundles with `@vercel/ncc`, copies to `%APPDATA%\Elgato\StreamDeck\Plugins\`, and restarts Stream Deck.
+
+## Native Windows (PowerShell)
+
+```powershell
+git clone https://github.com/lovato/streamdeck-auto-profile-switcher
+cd streamdeck-auto-profile-switcher
+.\deploy.ps1
+```
+
+## Manual steps
+
+1. Copy `com.lovato.autoprofileswitcher.sdPlugin` to `%APPDATA%\Elgato\StreamDeck\Plugins\`
+2. `npm install` inside the plugin folder
+3. `npx @vercel/ncc build app.js --out build/`
+4. Restart Stream Deck
+
+## Docs site locally
+
+```bash
+task docs:dev      # live reload at http://localhost:4321
+task docs:build    # production build
+task docs:preview  # preview the built site
+```
+
+## Requirements
+
+- Node.js 20+ (matches Stream Deck embedded runtime)
+- Stream Deck 6.9+ on Windows for testing
+- PowerShell (for Win32 foreground-window queries)

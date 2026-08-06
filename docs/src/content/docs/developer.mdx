@@ -1,0 +1,34 @@
+---
+title: Developer overview
+description: Contributing to Auto Profile Switcher.
+---
+
+This repository contains the Stream Deck plugin, deployment scripts, CI, and this documentation site.
+
+## Repository layout
+
+```
+streamdeck-auto-profile-switcher/
+├── taskfile.yaml              # Task runner entry points
+├── deploy.ps1                 # Windows deploy / uninstall
+├── docs/                      # Starlight docs site (this website)
+├── .githooks/                 # Tracked git hooks → task git:pre-*
+└── com.lovato.autoprofileswitcher.sdPlugin/
+    ├── app.js                 # Plugin main process
+    ├── lib/                   # Shared modules
+    ├── build/index.js         # ncc bundle (shipped)
+    └── property-inspector/    # Configuration UI
+```
+
+## Branches
+
+| Branch | Purpose |
+| --- | --- |
+| `dev` | Day-to-day development; docs deploy from here |
+| `release` | Merge to ship; triggers GitHub Release + `.streamDeckPlugin` |
+
+See [Releases](/developer/releases/) for the version gate and CI workflow.
+
+## Deep dive
+
+Read `AGENTS.md` in the repository root for architectural decisions and Stream Deck quirks — essential before changing switching logic.

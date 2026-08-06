@@ -1,0 +1,35 @@
+---
+title: Task runner
+description: Common task commands for plugin and docs development.
+---
+
+Run `task` with no arguments to list all tasks.
+
+## Plugin
+
+| Task | Description |
+| --- | --- |
+| `task deploy` | Install deps, build, deploy, restart Stream Deck |
+| `task deploy:quick` | Build and deploy (skip `npm install`) |
+| `task deploy:no-restart` | Build and deploy without restart |
+| `task uninstall` | Untag profiles and remove plugin |
+| `task check` | ESLint + tests |
+| `task build` | check → ncc bundle → `build/index.js` |
+| `task pack` | Build `.streamDeckPlugin` in `dist/` |
+
+## Docs site
+
+| Task | Description |
+| --- | --- |
+| `task docs:dev` | Starlight dev server with live reload |
+| `task docs:build` | Production static build |
+| `task docs:preview` | Serve the built site locally |
+| `task docs:deps` | `npm install` in `docs/` |
+
+## Git hooks
+
+| Task | Description |
+| --- | --- |
+| `task hooks:install` | Use `.githooks/` (run once per clone) |
+| `task git:pre-commit` | Customize pre-commit steps in taskfile |
+| `task git:pre-push` | Customize pre-push steps in taskfile |

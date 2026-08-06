@@ -1,0 +1,24 @@
+---
+title: MSIX / WindowsApps
+description: Why packaged apps break Smart Profiles and how this plugin fixes it.
+---
+
+## The problem
+
+Stream Deck Smart Profiles match applications by **executable path**. MSIX apps (Teams, WhatsApp, Windows Terminal, …) run from:
+
+```
+C:\Program Files\WindowsApps\<package>_<hash>_<arch>__<publisher>\
+```
+
+That path changes when Microsoft updates the package. Elgato [documents](https://help.elgato.com/hc/en-us/articles/360053419071) that Smart Profiles do not work reliably with packaged apps.
+
+## The fix
+
+Auto Profile Switcher asks Windows which window is in the foreground, resolves its process ID, and reads the **process name** — the same stable identifier you see in Task Manager.
+
+A single persistent PowerShell process handles the Win32 calls so polling every 150 ms does not spawn a new shell each tick.
+
+## UWP edge case
+
+Some UWP apps report as `ApplicationFrameHost`. Use **Test detection** in the property inspector to find the real process name for your target app.

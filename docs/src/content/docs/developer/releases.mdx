@@ -1,0 +1,36 @@
+---
+title: Releases
+description: Branching, versioning, and GitHub Releases.
+---
+
+## Branches
+
+| Branch | Role |
+| --- | --- |
+| `dev` | Integration branch; CI + docs deploy |
+| `release` | Shipping branch; creates GitHub Release on push |
+
+## Shipping a version
+
+1. Develop on `dev`.
+2. Bump `manifest.json` `Version` (e.g. `1.0.0.0` → `1.0.1.0` or `1.1.0.0`).
+3. Open a PR **`dev` → `release`**.
+4. **Version gate** CI must pass (PR version strictly greater than `release`).
+5. Merge — the release workflow packs the plugin, tags `vX.Y.Z`, and attaches the `.streamDeckPlugin` to a GitHub Release.
+
+Patch, minor, or major — your choice as long as the version increases.
+
+## Version format
+
+| Location | Format | Example |
+| --- | --- | --- |
+| `manifest.json` | 4-part (4th always `0`) | `1.0.1.0` |
+| Git tag / GitHub Release | 3-part with `v` prefix | `v1.0.1` |
+
+## Marketplace
+
+GitHub Releases host the installer artifact. Upload the `.streamDeckPlugin` to [Maker Console](https://maker.elgato.com) for Marketplace distribution.
+
+## Docs
+
+This site deploys automatically on push to `dev` via GitHub Actions → GitHub Pages.

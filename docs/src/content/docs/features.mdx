@@ -1,0 +1,35 @@
+---
+title: Features
+description: What Auto Profile Switcher adds on top of built-in Smart Profiles.
+---
+
+## MSIX / WindowsApps detection
+
+Switch when Teams, WhatsApp, Windows Terminal, or any MSIX-packaged app is focused. Detection uses `GetForegroundWindow` → process name — stable across app updates.
+
+## Window title matching
+
+Match on the **window title** in addition to the process name. Title-specific rules always win over process-only rules.
+
+| Process | Title contains | Profile |
+| --- | --- | --- |
+| `windowsterminal` | `PowerShell` | PowerShell |
+| `windowsterminal` | `Ubuntu` | WSL |
+| `windowsterminal` | *(anything)* | Terminal |
+| `ms-teams` | `Project X` | Teams — Project X |
+
+## Hybrid Smart Profiles
+
+The plugin does not replace Elgato's built-in Smart Profiles:
+
+- **Plugin handles:** MSIX apps and title-based rules you configure here.
+- **Built-in handles:** everything else (Chrome, VS Code, games, …).
+
+When no rule matches, the plugin calls `switchToProfile("")` so the built-in feature can take over.
+
+## Property inspector
+
+- **Live profile dropdown** — pick from your real profile names.
+- **Test detection** — capture process + title from any focused window.
+- **Profile patch list** — see which profiles are ready, conflicted, or need patching.
+- **Safe configuration** — no switching while the inspector is open.

@@ -1,0 +1,24 @@
+---
+title: Getting started
+description: Install Auto Profile Switcher and create your first profile rule.
+---
+
+Auto Profile Switcher runs as a **background monitor** — drag the action onto any key once, configure rules, and let it watch the foreground window.
+
+## What you need
+
+| Requirement | Notes |
+| --- | --- |
+| Windows 10/11 | Uses Win32 foreground-window APIs |
+| Stream Deck 6.9+ | Plugin SDK v3 |
+| A spare Stream Deck key | The action must exist somewhere on your deck |
+
+## High-level flow
+
+1. [Install](/getting-started/installation/) the plugin (Marketplace or `.streamDeckPlugin` from [GitHub Releases](https://github.com/lovato/streamdeck-auto-profile-switcher/releases)).
+2. Drag **Auto Profile Switcher** onto a key.
+3. Use [Test detection](/guides/test-detection/) to find process names.
+4. Add rules and [patch](/guides/patching-profiles/) target profiles.
+5. Quit and restart Stream Deck so tagging takes effect.
+
+See the [quick start](/getting-started/quickstart/) for a full walkthrough with Calculator as an example.

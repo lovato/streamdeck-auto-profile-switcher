@@ -1,0 +1,32 @@
+---
+title: Window title matching
+description: Create context-specific profiles using window title substrings.
+---
+
+Smart Profiles only know the process path. Auto Profile Switcher can also match on the **window title** of the focused app.
+
+## Rule priority
+
+Detection runs in order:
+
+1. **Title-specific** app-map rules (process + title substring)
+2. **Process-only** app-map rules
+3. **Built-in Smart Profile mirror** (from `AppIdentifier` in profile manifests)
+
+Title rules are more specific, so they always beat generic process rules for the same executable.
+
+## Example: Windows Terminal
+
+| Match | Title contains | Profile |
+| --- | --- | --- |
+| `windowsterminal` | `PowerShell` | PowerShell |
+| `windowsterminal` | `Ubuntu` | WSL |
+| `windowsterminal` | — | Terminal |
+
+Add the specific rules first; use a catch-all process rule last.
+
+## Tips
+
+- Matching is **case-insensitive** and uses **substring** checks (`includes`).
+- Use **Test detection** to copy exact title text from the target window.
+- Click **+ Add to app list** to pre-fill a rule from a detection result.
