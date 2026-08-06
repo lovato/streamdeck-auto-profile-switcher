@@ -10,6 +10,28 @@ tasks:
     cmds:
       - task --list
 
+  hooks:install:
+    desc: Use tracked hooks in .githooks/ for this clone (run once after clone)
+    cmds:
+      - git config core.hooksPath .githooks
+
+  hooks:uninstall:
+    desc: Stop using tracked hooks and restore git defaults for this clone
+    cmds:
+      - git config --unset core.hooksPath
+
+  git:pre-commit:
+    desc: Git pre-commit hook — customize steps here
+    silent: true
+    cmds:
+      - 'true'
+
+  git:pre-push:
+    desc: Git pre-push hook — customize steps here
+    silent: true
+    cmds:
+      - 'true'
+
   deploy:
     desc: Install npm deps, build, deploy plugin, and restart StreamDeck
     deps: [deps]
