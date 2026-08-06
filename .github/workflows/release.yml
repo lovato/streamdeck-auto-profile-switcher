@@ -30,13 +30,15 @@ jobs:
           echo "manifest=$manifest_version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-      - name: Skip if tag already exists
+      - name: Skip if GitHub Release already exists
         id: skip
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="${{ steps.version.outputs.tag }}"
-          if git rev-parse "$tag" >/dev/null 2>&1; then
+          if gh release view "$tag" >/dev/null 2>&1; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Tag $tag already exists. Bump manifest.json Version to release a new version."
+            echo "GitHub Release $tag already exists. Bump manifest.json Version to ship a new version."
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
