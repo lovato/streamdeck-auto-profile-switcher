@@ -1,0 +1,47 @@
+name: Version gate
+
+on:
+  pull_request:
+    branches: [release]
+
+permissions:
+  contents: read
+
+jobs:
+  version-gate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require manifest version greater than release
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          manifest_path=com.lovato.autoprofileswitcher.sdPlugin/manifest.json
+
+          pr_manifest=$(jq -r '.Version' "$manifest_path")
+          git fetch origin "$BASE_REF"
+          base_manifest=$(git show "origin/${BASE_REF}:${manifest_path}" | jq -r '.Version')
+
+          semver() { echo "$1" | cut -d. -f1-3; }
+          pr_semver=$(semver "$pr_manifest")
+          base_semver=$(semver "$base_manifest")
+
+          echo "PR manifest:     $pr_manifest ($pr_semver)"
+          echo "Release manifest: $base_manifest ($base_semver)"
+
+          if [ "$pr_semver" = "$base_semver" ]; then
+            echo "::error::Bump manifest.json Version before merging to release (currently $pr_manifest, release has $base_manifest)."
+            exit 1
+          fi
+
+          higher=$(printf '%s\n%s' "$base_semver" "$pr_semver" | sort -V | tail -n1)
+          if [ "$higher" != "$pr_semver" ]; then
+            echo "::error::Manifest version must be greater than release ($base_manifest). Got $pr_manifest."
+            exit 1
+          fi
+
+          echo "Version OK: $pr_manifest > $base_manifest"
