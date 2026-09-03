@@ -58,7 +58,7 @@
 
     .row {
       display: grid;
-      grid-template-columns: 20px 1fr 1fr 1fr 24px;
+      grid-template-columns: 20px 1fr 1fr minmax(180px, 1.5fr) 24px;
       gap: 6px;
       align-items: center;
       margin-bottom: 6px;
@@ -103,7 +103,7 @@
 
     .col-label {
       display: grid;
-      grid-template-columns: 20px 1fr 1fr 1fr 24px;
+      grid-template-columns: 20px 1fr 1fr minmax(180px, 1.5fr) 24px;
       gap: 6px;
       margin-bottom: 4px;
     }
@@ -114,6 +114,11 @@
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
+
+    .assignment-list { display: grid; gap: 4px; }
+    .assignment-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(90px, 1.2fr); gap: 4px; align-items: center; }
+    .assignment-label { font-size: 10px; color: #999; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .assignment-row select { margin-bottom: 0; }
 
     .btn {
       display: inline-block;
@@ -233,7 +238,7 @@
     <b>Maps any Windows processes to StreamDeck profile names.</b><br>
     <li/>Process name works by partial match (e.g. "teams" matches "ms-teams.exe").
     <li/>Optionally add a window title match for finer control (e.g. "PowerShell" matches "Windows PowerShell").
-    <li/>Finally, select the profile to switch to when a match is found.
+    <li/>Assign a fallback profile for all devices, or override it per connected Stream Deck.
   </p>
 
   <br>
@@ -242,7 +247,7 @@
     <span></span>
     <span>Process Name</span>
     <span>Title Match</span>
-    <span>Profile</span>
+    <span>Profile assignments</span>
     <span></span>
   </div>
 
@@ -286,6 +291,7 @@
   let sdConnection      = null;
   let actionContext      = null;
   let knownProfiles      = [];
+  let knownDevices       = [];
   let lastDetection      = null;
   let profilesStatusData = [];
   let pendingPatch       = false;
@@ -326,6 +332,10 @@
         }
 
         if (p?.action === "profilesList")   populateProfileSelects(p.profiles);
+        if (p?.action === "devicesList") {
+          knownDevices = p.devices || [];
+          renderRows(collectRows());
+        }
         if (p?.action === "profilesStatus")  {
           if (pendingPatch) {
             setPatchNote('✓ Patched — restart StreamDeck to activate', '#7cb87c');
@@ -340,9 +350,9 @@
   };
 
   // ── Row rendering ────────────────────────────────────────────────────────
-  function buildProfileSelect(current) {
+  function buildProfileSelect(current, className = "profile-input") {
     const sel = document.createElement("select");
-    sel.className = "profile-input";
+    sel.className = className;
     sel.style.marginBottom = "0";
     const blank = document.createElement("option");
     blank.value = ""; blank.textContent = "— select profile —";
@@ -379,10 +389,11 @@
   function renderRows(map) {
     const container = document.getElementById("entries");
     container.innerHTML = "";
-    map.forEach(entry => addRow(entry.match, entry.titleMatch || "", entry.profile));
+    map.forEach(entry => addRow(entry));
   }
 
-  function addRow(match = "", titleMatch = "", profile = "") {
+  function addRow(entry = {}) {
+    const { match = "", titleMatch = "", profile = "", assignments = [] } = entry;
     const container = document.getElementById("entries");
     const row = document.createElement("div");
     row.className = "row";
@@ -397,7 +408,38 @@
       <input type="text" placeholder="e.g. ms-teams"   value="${match}"      class="match-input" />
       <input type="text" placeholder="e.g. PowerShell" value="${titleMatch}" class="title-input" />
     `;
-    row.appendChild(buildProfileSelect(profile));
+    const assignmentList = document.createElement("div");
+    assignmentList.className = "assignment-list";
+    const defaultAssignment = document.createElement("div");
+    defaultAssignment.className = "assignment-row";
+    defaultAssignment.innerHTML = '<span class="assignment-label">All other devices</span>';
+    defaultAssignment.appendChild(buildProfileSelect(profile, "profile-input default-profile-input"));
+    assignmentList.appendChild(defaultAssignment);
+
+    const byDevice = new Map(assignments
+      .filter(a => a?.deviceId)
+      .map(a => [a.deviceId, a.profile || ""]));
+    const displayedDevices = [...knownDevices];
+    byDevice.forEach((_, deviceId) => {
+      if (!displayedDevices.some(device => device.id === deviceId)) {
+        displayedDevices.push({ id: deviceId, name: `Disconnected device (${deviceId.slice(0, 8)}…)` });
+      }
+    });
+    displayedDevices.forEach(device => {
+      const assignment = document.createElement("div");
+      assignment.className = "assignment-row";
+      const label = document.createElement("span");
+      label.className = "assignment-label";
+      const dimensions = device.size ? ` (${device.size.columns}×${device.size.rows})` : "";
+      label.textContent = `${device.name}${dimensions}`;
+      label.title = device.id;
+      assignment.appendChild(label);
+      const select = buildProfileSelect(byDevice.get(device.id) || "", "profile-input assignment-profile-input");
+      select.dataset.deviceId = device.id;
+      assignment.appendChild(select);
+      assignmentList.appendChild(assignment);
+    });
+    row.appendChild(assignmentList);
     const btn = document.createElement("button");
     btn.className = "remove-btn";
     btn.textContent = "×";
@@ -464,13 +506,18 @@
       .map(r => {
         const entry = {
           match:   r.querySelector(".match-input").value.trim(),
-          profile: r.querySelector(".profile-input").value.trim(),
         };
+        const profile = r.querySelector(".default-profile-input").value.trim();
+        if (profile) entry.profile = profile;
+        const assignments = Array.from(r.querySelectorAll(".assignment-profile-input"))
+          .map(select => ({ deviceId: select.dataset.deviceId, profile: select.value.trim() }))
+          .filter(a => a.profile);
+        if (assignments.length) entry.assignments = assignments;
         const t = r.querySelector(".title-input").value.trim();
         if (t) entry.titleMatch = t;
         return entry;
       })
-      .filter(e => e.match && e.profile);
+      .filter(e => e.match && (e.profile || e.assignments?.length));
   }
 
   // ── Save ─────────────────────────────────────────────────────────────────
@@ -493,21 +540,34 @@
     lastDetection = r;
     const matched = r.profile && r.profile !== "(no match)";
     const profile = matched ? r.profile : "(no match)";
+    const deviceProfiles = Object.entries(r.profiles || {})
+      .map(([deviceId, target]) => {
+        const device = knownDevices.find(d => d.id === deviceId);
+        return `${device?.name || deviceId}: ${target || "(release)"}`;
+      })
+      .join("<br>");
     const el = document.getElementById("test-result");
     el.style.display = "block";
     el.innerHTML =
       `Process: <strong style="color:#fff">${r.proc || "(none)"}</strong><br>` +
       `Title:&nbsp;&nbsp; <strong style="color:#aad4f5">${r.title || "(none)"}</strong><br>` +
-      `Profile: <strong style="color:${matched ? "#7cb87c" : "#e07c7c"}">${profile}</strong>`;
+      `Profile: <strong style="color:${matched ? "#7cb87c" : "#e07c7c"}">${profile}</strong>` +
+      (deviceProfiles ? `<br>Profiles:<br>${deviceProfiles}` : "");
     document.getElementById("add-detection-btn").style.display =
       r.proc ? "inline-block" : "none";
   }
 
   function addFromDetection() {
     if (!lastDetection?.proc) return;
-    const matched = lastDetection.profile && lastDetection.profile !== "(no match)";
+    const matched = lastDetection.profile &&
+      lastDetection.profile !== "(no match)" &&
+      lastDetection.profile !== "(per-device assignments)";
     const fallback = knownProfiles.find(p => p.toLowerCase().startsWith("default")) || "";
-    addRow(lastDetection.proc, lastDetection.title || "", matched ? lastDetection.profile : fallback);
+    addRow({
+      match: lastDetection.proc,
+      titleMatch: lastDetection.title || "",
+      profile: matched ? lastDetection.profile : fallback,
+    });
     const newRow = document.getElementById("entries").lastElementChild;
     newRow.scrollIntoView({ behavior: "smooth" });
     newRow.querySelector(".match-input").focus();
