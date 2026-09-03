@@ -5,25 +5,96 @@
 /***/ ((module) => {
 
 /**
- * Profile detection — title-specific app-map rules, then process-only, then built-in map.
+ * Finds the highest-priority custom rule, or the built-in Smart Profile fallback.
+ * Title-specific rules always win over process-only rules.
  */
-function detectProfile(proc, title = '', appMap = [], builtInMap = {}) {
+function findProfileMatch(proc, title = '', appMap = [], builtInMap = {}) {
   const lTitle = title.toLowerCase();
   for (const entry of appMap) {
     if (!entry.titleMatch) continue;
     if (proc.includes(entry.match.toLowerCase()) && lTitle.includes(entry.titleMatch.toLowerCase())) {
-      return entry.profile;
+      return { type: 'rule', entry };
     }
   }
   for (const entry of appMap) {
     if (entry.titleMatch) continue;
-    if (proc.includes(entry.match.toLowerCase())) return entry.profile;
+    if (proc.includes(entry.match.toLowerCase())) return { type: 'rule', entry };
   }
-  if (builtInMap[proc]) return builtInMap[proc];
+  if (builtInMap[proc]) return { type: 'builtIn', profile: builtInMap[proc] };
   return null;
 }
 
-module.exports = { detectProfile };
+/**
+ * Resolves a match into a profile target for each connected device.
+ *
+ * Legacy rules with `profile` broadcast to every device. Per-device assignments
+ * override that fallback when both are present, allowing a default plus exceptions.
+ * An unmatched device receives null, which tells the caller to release its override.
+ */
+function resolveProfileAssignments(match, deviceIds) {
+  const targets = new Map();
+  const assignments = match?.type === 'rule'
+    ? new Map((match.entry.assignments || [])
+      .filter(a => a?.deviceId && a.profile)
+      .map(a => [a.deviceId, a.profile]))
+    : new Map();
+  const fallback = match?.type === 'builtIn'
+    ? match.profile
+    : match?.entry?.profile || null;
+
+  for (const deviceId of deviceIds) {
+    targets.set(deviceId, assignments.get(deviceId) || fallback);
+  }
+  return targets;
+}
+
+// Retained for callers and saved configurations that only use a single profile.
+function detectProfile(proc, title = '', appMap = [], builtInMap = {}) {
+  const match = findProfileMatch(proc, title, appMap, builtInMap);
+  if (match?.type === 'builtIn') return match.profile;
+  return match?.entry?.profile || null;
+}
+
+module.exports = { detectProfile, findProfileMatch, resolveProfileAssignments };
+
+
+/***/ }),
+
+/***/ 736:
+/***/ ((module) => {
+
+/**
+ * Computes one device's profile-stack transition without any Stream Deck I/O.
+ * The caller sends pre-release, switch, or release messages in the returned order.
+ */
+function transitionDeviceState(current = {}, profile) {
+  const previous = current.lastProfile || null;
+  const depth = current.pluginDepth || 0;
+
+  if (profile === previous) return null;
+
+  if (profile) {
+    const isFirst = previous === null;
+    return {
+      state: {
+        lastProfile: profile,
+        pluginDepth: isFirst ? 1 : depth + 1,
+      },
+      preRelease: isFirst,
+      switchProfile: profile,
+      releaseCount: 0,
+    };
+  }
+
+  return {
+    state: { lastProfile: null, pluginDepth: 0 },
+    preRelease: false,
+    switchProfile: null,
+    releaseCount: Math.max(depth, 1),
+  };
+}
+
+module.exports = { transitionDeviceState };
 
 
 /***/ }),
@@ -5198,7 +5269,11 @@ const WebSocket = __nccwpck_require__(354);
 const { spawn } = __nccwpck_require__(317);
 const fs         = __nccwpck_require__(896);
 const path       = __nccwpck_require__(928);
-const { detectProfile: detectProfileFromMaps } = __nccwpck_require__(361);
+const {
+  findProfileMatch,
+  resolveProfileAssignments,
+} = __nccwpck_require__(361);
+const { transitionDeviceState } = __nccwpck_require__(736);
 
 // ─── StreamDeck connection args ───────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -5217,10 +5292,9 @@ const DEFAULT_APP_MAP = [];
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let ws             = null;
-let deviceId       = null;
 let actionContext  = null;
-let lastProfile    = null;
-let pluginDepth    = 0;   // consecutive plugin-managed profile switches since last unmonitored app
+const devices      = new Map(); // deviceId → deviceInfo
+const deviceStates = new Map(); // deviceId → { lastProfile, pluginDepth }
 let appMap         = DEFAULT_APP_MAP;
 let pollTimer      = null;
 let isPollRunning  = false;
@@ -5423,7 +5497,10 @@ function loadBuiltInProfileMap() {
 
 function allTargets() {
   return [...new Set([
-    ...appMap.map(e => e.profile).filter(Boolean),
+    ...appMap.flatMap(e => [
+      e.profile,
+      ...(e.assignments || []).map(a => a?.profile),
+    ]).filter(Boolean),
     ...Object.values(builtInMap),
     ...manualPatches,
   ])];
@@ -5578,8 +5655,8 @@ function patchProfiles(names, force = false) {
 }
 
 // ─── Profile detection ────────────────────────────────────────────────────────
-function detectProfile(proc, title = '') {
-  return detectProfileFromMaps(proc, title, appMap, builtInMap);
+function detectProfileMatch(proc, title = '') {
+  return findProfileMatch(proc, title, appMap, builtInMap);
 }
 
 // ─── Profile directory index ──────────────────────────────────────────────────
@@ -5629,8 +5706,7 @@ function send(payload) {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
 }
 
-function switchToProfile(profileName) {
-  if (!deviceId) return;
+function switchToProfile(deviceId, profileName) {
   if (profileName) ensureProfileTagged(profileName);
   send({ event: "switchToProfile", context: PLUGIN_UUID, device: deviceId, payload: { profile: profileName } });
 }
@@ -5648,12 +5724,26 @@ function logMessage(msg) {
 }
 
 function sendToPI(payload) {
+  if (!actionContext) return;
   send({
     event:   "sendToPropertyInspector",
     context: actionContext,
     action:  "com.lovato.autoprofileswitcher.monitor",
     payload,
   });
+}
+
+function getConnectedDevices() {
+  return [...devices].map(([id, info = {}]) => ({
+    id,
+    name: info.name || "Unnamed Stream Deck",
+    type: info.type,
+    size: info.size,
+  }));
+}
+
+function sendDevicesToPI() {
+  sendToPI({ action: "devicesList", devices: getConnectedDevices() });
 }
 
 // ─── Poll loop ────────────────────────────────────────────────────────────────
@@ -5677,25 +5767,31 @@ async function pollOnce() {
     }
     if (stableCount < STABLE_POLLS) return;
 
-    const profile = detectProfile(proc, title);
-    if (profile !== lastProfile) {
-      if (profile) {
-        const isFirst = (lastProfile === null);
-        pluginDepth = isFirst ? 1 : pluginDepth + 1;
-        lastProfile = profile;
-        if (isFirst) {
-          switchToProfile('');
-          await new Promise(r => setTimeout(r, 50));
-        }
-        logMessage(`Detected "${proc}" → switching to profile "${profile}"`);
-        switchToProfile(profile);
+    const match = detectProfileMatch(proc, title);
+    const targets = resolveProfileAssignments(match, devices.keys());
+    const transitions = [];
+
+    for (const [deviceId, profile] of targets) {
+      const transition = transitionDeviceState(deviceStates.get(deviceId), profile);
+      if (!transition) continue;
+      deviceStates.set(deviceId, transition.state);
+      transitions.push({ deviceId, profile, ...transition });
+    }
+
+    // The release and switch must be separated by 50 ms on every device that
+    // starts a plugin-managed stack. Fan out each phase so all devices change
+    // together instead of serializing the delay per device.
+    const firstSwitches = transitions.filter(t => t.preRelease);
+    for (const { deviceId } of firstSwitches) switchToProfile(deviceId, '');
+    if (firstSwitches.length) await new Promise(r => setTimeout(r, 50));
+
+    for (const { deviceId, profile, switchProfile, releaseCount } of transitions) {
+      if (switchProfile) {
+        logMessage(`Detected "${proc}" → device ${deviceId} profile "${profile}"`);
+        switchToProfile(deviceId, switchProfile);
       } else {
-        // Call switchToProfile('') once per depth level so StreamDeck peels
-        // back through any stacked plugin profiles and lands on Default.
-        const releases = Math.max(pluginDepth, 1);
-        pluginDepth = 0;
-        lastProfile = null;
-        for (let i = 0; i < releases; i++) switchToProfile('');
+        // Each empty switch pops one level from this specific device's stack.
+        for (let i = 0; i < releaseCount; i++) switchToProfile(deviceId, '');
       }
     }
   } finally {
@@ -5750,8 +5846,15 @@ function runTestDetection() {
       clearInterval(tick);
       getActiveWindowInfo().then(({ proc, title }) => {
         isTesting = false;  // countdown done; settingsOpen now prevents any switching
-        const profile = detectProfile(proc, title);
-        const result  = { proc, title, profile: profile || "(no match)" };
+        const match = detectProfileMatch(proc, title);
+        const profiles = Object.fromEntries(resolveProfileAssignments(match, devices.keys()));
+        const targets = [...new Set(Object.values(profiles).filter(Boolean))];
+        const result  = {
+          proc,
+          title,
+          profile: targets.length === 1 ? targets[0] : targets.length ? "(per-device assignments)" : "(no match)",
+          profiles,
+        };
         globalSettings.lastDetection = result;
         setGlobalSettings(globalSettings);
         sendToPI({ action: "detectionResult", ...result });
@@ -5780,17 +5883,28 @@ function connect() {
 
     switch (msg.event) {
       case "deviceDidConnect":
-        if (!deviceId) { deviceId = msg.device; logMessage(`Device connected: ${deviceId}`); startPolling(); }
+        devices.set(msg.device, msg.deviceInfo || {});
+        if (!deviceStates.has(msg.device)) deviceStates.set(msg.device, { lastProfile: null, pluginDepth: 0 });
+        logMessage(`Device connected: ${msg.device}`);
+        startPolling();
+        if (settingsOpen) sendDevicesToPI();
         break;
 
       case "deviceDidDisconnect":
-        if (msg.device === deviceId) { deviceId = null; stopPolling(); }
+        devices.delete(msg.device);
+        deviceStates.delete(msg.device);
+        if (devices.size === 0) stopPolling();
+        if (settingsOpen) sendDevicesToPI();
         break;
 
       case "willAppear":
         actionContext = msg.context;
-        if (!deviceId) deviceId = msg.device;
+        if (!devices.has(msg.device)) {
+          devices.set(msg.device, {});
+          deviceStates.set(msg.device, { lastProfile: null, pluginDepth: 0 });
+        }
         if (!pollTimer) startPolling();
+        if (settingsOpen) sendDevicesToPI();
         break;
 
       case "willDisappear":
@@ -5803,6 +5917,7 @@ function connect() {
         syncProfileTags(allTargets());
         sendToPI({ action: "profilesList", profiles: getProfileNames() });
         sendToPI({ action: "profilesStatus", profiles: getProfilesStatus() });
+        sendDevicesToPI();
         break;
 
       case "propertyInspectorDidDisappear":
@@ -5817,7 +5932,7 @@ function connect() {
 
       case "sendToPlugin":
         if (msg.payload?.action === "saveSettings") {
-          applySettings(msg.payload.settings);
+          applySettings({ ...globalSettings, ...msg.payload.settings });
           setGlobalSettings(globalSettings);
           logMessage("Settings saved");
         }
@@ -5838,7 +5953,9 @@ function connect() {
 
       case "applicationDidLaunch":
       case "applicationDidTerminate":
-        lastProfile = null;
+        for (const [deviceId, state] of deviceStates) {
+          deviceStates.set(deviceId, { ...state, lastProfile: null, pluginDepth: 0 });
+        }
         break;
     }
   });
