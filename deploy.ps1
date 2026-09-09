@@ -18,11 +18,15 @@
 
 .PARAMETER Uninstall
     Untag all plugin-owned profiles and remove the plugin from StreamDeck.
+
+.PARAMETER RestartOnly
+    Restart StreamDeck without deploying or uninstalling the plugin.
 #>
 param(
     [switch]$NoRestart,
     [switch]$SkipDeps,
-    [switch]$Uninstall
+    [switch]$Uninstall,
+    [switch]$RestartOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,6 +39,43 @@ $ProfilesDir   = Join-Path $env:APPDATA "Elgato\StreamDeck\ProfilesV3"
 $DataDir       = Join-Path $env:APPDATA "Elgato\StreamDeck\Data\$PluginUUID"
 $StreamDeckExe = Join-Path $env:ProgramFiles "Elgato\StreamDeck\StreamDeck.exe"
 $utf8NoBom     = New-Object System.Text.UTF8Encoding $false
+
+function Stop-StreamDeck {
+    $running = @(Get-Process -Name "StreamDeck" -ErrorAction SilentlyContinue)
+    if ($running.Count -eq 0) {
+        Write-Host "==> StreamDeck is not running."
+        return
+    }
+
+    $oldPids = $running.Id -join ", "
+    Write-Host "==> Stopping StreamDeck (PID $oldPids)..."
+    try {
+        $running | Stop-Process -Force -ErrorAction Stop
+        $running | Wait-Process -Timeout 10 -ErrorAction Stop
+    } catch {
+        throw "Unable to stop StreamDeck (PID $oldPids). Quit it from the tray or run this task with sufficient permissions. $($_.Exception.Message)"
+    }
+
+    if (Get-Process -Name "StreamDeck" -ErrorAction SilentlyContinue) {
+        throw "StreamDeck is still running after the stop request. Deployment was cancelled."
+    }
+    Write-Host "    StreamDeck stopped."
+}
+
+function Start-StreamDeck {
+    if (-not (Test-Path $StreamDeckExe)) {
+        throw "StreamDeck.exe not found at: $StreamDeckExe"
+    }
+
+    Write-Host "==> Starting StreamDeck..."
+    Start-Process $StreamDeckExe
+    Start-Sleep -Seconds 2
+    $running = @(Get-Process -Name "StreamDeck" -ErrorAction SilentlyContinue)
+    if ($running.Count -eq 0) {
+        throw "StreamDeck did not start."
+    }
+    Write-Host "    StreamDeck started (PID $($running.Id -join ', '))."
+}
 
 function Untag-AllPluginProfiles {
     if (-not (Test-Path $ProfilesDir)) { return }
@@ -55,11 +96,15 @@ function Untag-AllPluginProfiles {
     }
 }
 
+if ($RestartOnly) {
+    Stop-StreamDeck
+    Start-StreamDeck
+    return
+}
+
 # ─── Uninstall ────────────────────────────────────────────────────────────────
 if ($Uninstall) {
-    Write-Host "==> Stopping StreamDeck..."
-    Stop-Process -Name "StreamDeck" -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2
+    Stop-StreamDeck
 
     Write-Host "==> Untagging plugin-owned profiles..."
     Untag-AllPluginProfiles
@@ -82,13 +127,7 @@ if ($Uninstall) {
     }
 
     if (-not $NoRestart) {
-        Write-Host "==> Starting StreamDeck..."
-        if (Test-Path $StreamDeckExe) {
-            Start-Process $StreamDeckExe
-            Write-Host "    StreamDeck started."
-        } else {
-            Write-Warning "StreamDeck.exe not found at: $StreamDeckExe"
-        }
+        Start-StreamDeck
     }
     Write-Host "==> Uninstall complete."
     return
@@ -102,9 +141,7 @@ if (-not $SkipDeps) {
     Pop-Location
 }
 
-Write-Host "==> Stopping StreamDeck..."
-Stop-Process -Name "StreamDeck" -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 2
+Stop-StreamDeck
 
 Write-Host "==> Deploying to $PluginsPath ..."
 if (-not (Test-Path $PluginsPath)) {
@@ -170,11 +207,5 @@ if (Test-Path $ProfilesDir) {
 }
 
 if (-not $NoRestart) {
-    Write-Host "==> Starting StreamDeck..."
-    if (Test-Path $StreamDeckExe) {
-        Start-Process $StreamDeckExe
-        Write-Host "    StreamDeck started."
-    } else {
-        Write-Warning "StreamDeck.exe not found at: $StreamDeckExe"
-    }
+    Start-StreamDeck
 }
