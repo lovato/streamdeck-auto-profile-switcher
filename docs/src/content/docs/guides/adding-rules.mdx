@@ -3,13 +3,17 @@ title: Adding rules
 description: Configure app-map rules from test detection or manually.
 ---
 
+import { Steps } from '@astrojs/starlight/components';
+
 ## From test detection (easiest)
 
+<Steps>
 1. Open the property inspector for Auto Profile Switcher.
 2. Click **Test detection** and focus the target app within 3 seconds.
 3. Click **+ Add this to App List** — process name and title are pre-filled.
-4. Choose a fallback profile for all devices, or choose a profile for each connected Stream Deck.
+4. Choose a profile for each enabled Stream Deck you want the rule to manage.
 5. Save settings.
+</Steps>
 
 ## Manual entry
 
@@ -19,21 +23,16 @@ Each rule has:
 | --- | --- |
 | **Match** | Process name substring (e.g. `calc`, `windowsterminal`) |
 | **Title match** | Optional window title substring |
-| **All other devices** | Optional fallback profile for every connected Stream Deck |
-| **Device name** | Optional profile override for that specific connected Stream Deck |
+| **Device name** | Optional profile assignment for that enabled Stream Deck |
 
-Leave **Title match** empty for a process-only rule. A device-specific override
-takes precedence over **All other devices**. A rule that only has device
-assignments releases the plugin override on connected devices without an
-assignment.
+Leave **Title match** empty for a process-only rule. Devices without an
+assignment are released to their previous or built-in Smart Profile behavior.
 
 Device assignments are saved by Stream Deck device ID. Assignments for a
-disconnected device remain visible and are applied when it reconnects. Built-in
-Smart Profile matches use the same profile name on every connected device.
+disabled device remain saved but hidden and are restored when it is re-enabled.
+Forgetting a device removes its assignments on the next plugin start.
 
-Profiles are discovered globally from Stream Deck's `ProfilesV3` directory.
-Use distinct names for profiles intended for different devices, such as `Key
-Editor (XL)` and `Key Editor (XL+)`.
+Each device dropdown lists only profiles that belong to that Stream Deck.
 
 ## Finding process names
 

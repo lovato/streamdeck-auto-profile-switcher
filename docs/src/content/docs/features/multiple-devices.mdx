@@ -1,0 +1,37 @@
+---
+title: Multiple Stream Decks
+description: Assign and manage a different profile for every enabled Stream Deck.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Auto Profile Switcher monitors all enabled Stream Decks from one global configuration. A matching application can switch each device to a different profile.
+
+## Assign profiles by device
+
+<Steps>
+1. Connect and enable the Stream Decks you want to manage.
+2. Open the Auto Profile Switcher property inspector.
+3. Add or edit a rule.
+4. Under **Profile assignments**, choose a target for each named Stream Deck.
+5. Save the configuration and close the property inspector.
+</Steps>
+
+Each dropdown contains only profiles created for that device. Stream Deck cannot switch one device to a profile belonging to another device.
+
+<Aside type="tip">
+Give device-specific profiles clear names, especially when several devices use similar layouts.
+</Aside>
+
+## Disabled and forgotten devices
+
+- **Disabled:** hidden from rules and Profile Status, but assignments are retained. Re-enable the device to restore them.
+- **Forgotten:** removed from Stream Deck's device catalog. Its assignments and orphaned patch tracking are deleted the next time the plugin starts.
+
+## Existing configurations
+
+Version 1.1 migrates each older single-profile rule to the first detected Stream Deck. Review the migrated assignments, then configure additional devices as needed.
+
+## Profile Status
+
+Profile Status has a separate section for each enabled Stream Deck. Patch and Force retain their existing behavior, but only relevant profiles appear under each device.
