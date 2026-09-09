@@ -53,7 +53,8 @@ function Stop-StreamDeck {
         $running | Stop-Process -Force -ErrorAction Stop
         $running | Wait-Process -Timeout 10 -ErrorAction Stop
     } catch {
-        throw "Unable to stop StreamDeck (PID $oldPids). Quit it from the tray or run this task with sufficient permissions. $($_.Exception.Message)"
+        $retryTask = if ($RestartOnly) { "task restart" } else { "task deploy" }
+        throw "Unable to stop StreamDeck (PID $oldPids). Close StreamDeck manually from the tray, then run '$retryTask' again. $($_.Exception.Message)"
     }
 
     if (Get-Process -Name "StreamDeck" -ErrorAction SilentlyContinue) {
