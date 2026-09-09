@@ -445,11 +445,6 @@
       .filter(a => a?.deviceId)
       .map(a => [a.deviceId, a.profile || ""]));
     const displayedDevices = [...knownDevices];
-    byDevice.forEach((_, deviceId) => {
-      if (!displayedDevices.some(device => device.id === deviceId)) {
-        displayedDevices.push({ id: deviceId, name: `Disconnected device (${deviceId.slice(0, 8)}…)` });
-      }
-    });
     displayedDevices.sort((a, b) => alphabetical(a.name, b.name));
     displayedDevices.forEach(device => {
       const assignment = document.createElement("div");
@@ -468,6 +463,15 @@
       select.dataset.deviceId = device.id;
       assignment.appendChild(select);
       assignmentList.appendChild(assignment);
+    });
+    byDevice.forEach((assignedProfile, deviceId) => {
+      if (displayedDevices.some(device => device.id === deviceId)) return;
+      const preserved = document.createElement("input");
+      preserved.type = "hidden";
+      preserved.className = "preserved-assignment-input";
+      preserved.dataset.deviceId = deviceId;
+      preserved.value = assignedProfile;
+      assignmentList.appendChild(preserved);
     });
     // A connected device normally triggers the plugin-side migration before
     // this panel renders. Retain a legacy value if that has not happened yet,
@@ -555,7 +559,9 @@
         const legacyProfile = r.querySelector(".default-profile-input");
         const profile = legacyProfile?.value.trim() || "";
         if (profile) entry.profile = profile;
-        const assignments = Array.from(r.querySelectorAll(".assignment-profile-input"))
+        const assignments = Array.from(r.querySelectorAll(
+          ".assignment-profile-input, .preserved-assignment-input",
+        ))
           .map(select => ({ deviceId: select.dataset.deviceId, profile: select.value.trim() }))
           .filter(a => a.profile);
         if (assignments.length) entry.assignments = assignments;

@@ -30,9 +30,6 @@ const getArg = (flag) => { const i = args.indexOf(flag); return i !== -1 ? args[
 const PORT         = getArg("-port");
 const PLUGIN_UUID  = getArg("-pluginUUID");
 const REGISTER_EVT = getArg("-registerEvent");
-const STREAMDECK_INFO = (() => {
-  try { return JSON.parse(getArg("-info") || "{}"); } catch { return {}; }
-})();
 
 // ─── Configuration ────────────────────────────────────────────────────────────
 const POLL_INTERVAL_MS   = 150;
@@ -54,19 +51,6 @@ let stableProc     = '';
 let stableCount    = 0;
 let isTesting      = false;
 let settingsOpen   = false;
-
-// deviceDidConnect is only emitted for devices connected after the plugin has
-// started. Seed the inventory from Stream Deck's startup info so every deck
-// already connected is available for assignments and switching.
-for (const device of STREAMDECK_INFO.devices || []) {
-  if (!device?.id) continue;
-  devices.set(device.id, {
-    name: device.name,
-    type: device.type,
-    size: device.size,
-  });
-  deviceStates.set(device.id, { lastProfile: null, pluginDepth: 0 });
-}
 
 // ─── Persistent PowerShell process ───────────────────────────────────────────
 // Spawns once and compiles the Win32 P/Invoke helper once. Each query sends a
@@ -415,6 +399,8 @@ function getProfilesStatus() {
       [...resolveDeviceProfileGroups(groups)].map(([deviceId, groupId]) => [groupId, deviceId]),
     );
     for (const [groupId, manifests] of groups) {
+      const deviceId = groupToDevice.get(groupId);
+      if (!deviceId) continue;
       for (const m of manifests) {
       let status;
       if (m.InstalledByPluginUUID === PLUGIN_ID) {
@@ -434,7 +420,7 @@ function getProfilesStatus() {
           byDeviceAndName.set(key, {
             name: m.Name,
             status,
-            deviceId: groupToDevice.get(groupId) || groupId,
+            deviceId,
           });
         }
       }
@@ -745,6 +731,13 @@ function connect() {
         deviceStates.delete(msg.device);
         if (devices.size === 0) stopPolling();
         if (settingsOpen) sendDevicesToPI();
+        break;
+
+      case "deviceDidChange":
+        if (devices.has(msg.device)) {
+          devices.set(msg.device, msg.deviceInfo || {});
+          if (settingsOpen) sendDevicesToPI();
+        }
         break;
 
       case "willAppear":
