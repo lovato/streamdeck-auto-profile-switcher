@@ -181,48 +181,55 @@ function readManifest(dir) {
   } catch { return null; }
 }
 
+function getProfileGroups() {
+  const groups = new Map();
+  for (const dir of fs.readdirSync(V3_DIR).filter(d => d.endsWith('.sdProfile'))) {
+    const manifest = readManifest(dir);
+    const profileDeviceId = manifest?.Device?.UUID;
+    if (!manifest?.Name || !profileDeviceId) continue;
+    if (!groups.has(profileDeviceId)) groups.set(profileDeviceId, []);
+    groups.get(profileDeviceId).push(manifest);
+  }
+  return groups;
+}
+
+function resolveDeviceProfileGroups(groups) {
+  const deviceToGroup = new Map();
+  const claimedGroups = new Set();
+
+  // Saved assignments bridge the two unrelated identifier systems: the
+  // assignment contains the SDK's opaque device ID and a profile name, while
+  // ProfilesV3 tells us which hardware profile group owns that profile.
+  for (const entry of appMap) {
+    for (const assignment of entry.assignments || []) {
+      if (!devices.has(assignment?.deviceId) || !assignment.profile) continue;
+      const matches = [...groups].filter(([, manifests]) =>
+        manifests.some(manifest => manifest.Name === assignment.profile));
+      if (matches.length !== 1) continue;
+      const [profileDeviceId] = matches[0];
+      deviceToGroup.set(assignment.deviceId, profileDeviceId);
+      claimedGroups.add(profileDeviceId);
+    }
+  }
+
+  // Once explicit assignments identify the otherwise ambiguous physical
+  // decks, pair any remaining devices/groups when the relationship is unique
+  // (for example, one Stream Deck Mobile and one mobile profile group).
+  const unmatchedDevices = [...devices.keys()].filter(id => !deviceToGroup.has(id));
+  const unmatchedGroups = [...groups.keys()].filter(id => !claimedGroups.has(id));
+  if (unmatchedDevices.length === 1 && unmatchedGroups.length === 1) {
+    deviceToGroup.set(unmatchedDevices[0], unmatchedGroups[0]);
+  }
+  return deviceToGroup;
+}
+
 function getProfilesByDevice() {
   try {
-    const groups = new Map();
-    fs.readdirSync(V3_DIR)
-      .filter(d => d.endsWith('.sdProfile'))
-      .forEach(dir => {
-        const manifest = readManifest(dir);
-        const profileDeviceId = manifest?.Device?.UUID;
-        if (!manifest?.Name || !profileDeviceId) return;
-        if (!groups.has(profileDeviceId)) groups.set(profileDeviceId, []);
-        groups.get(profileDeviceId).push(manifest.Name);
-      });
-
-    const deviceToGroup = new Map();
-    const claimedGroups = new Set();
-
-    // Saved assignments bridge the two unrelated identifier systems: the
-    // assignment contains the SDK's opaque device ID and a profile name, while
-    // ProfilesV3 tells us which hardware profile group owns that profile.
-    for (const entry of appMap) {
-      for (const assignment of entry.assignments || []) {
-        if (!devices.has(assignment?.deviceId) || !assignment.profile) continue;
-        const matches = [...groups].filter(([, names]) => names.includes(assignment.profile));
-        if (matches.length !== 1) continue;
-        const [profileDeviceId] = matches[0];
-        deviceToGroup.set(assignment.deviceId, profileDeviceId);
-        claimedGroups.add(profileDeviceId);
-      }
-    }
-
-    // Once explicit assignments identify the otherwise ambiguous physical
-    // decks, pair any remaining devices/groups when the relationship is unique
-    // (for example, one Stream Deck Mobile and one mobile profile group).
-    const unmatchedDevices = [...devices.keys()].filter(id => !deviceToGroup.has(id));
-    const unmatchedGroups = [...groups.keys()].filter(id => !claimedGroups.has(id));
-    if (unmatchedDevices.length === 1 && unmatchedGroups.length === 1) {
-      deviceToGroup.set(unmatchedDevices[0], unmatchedGroups[0]);
-    }
-
+    const groups = getProfileGroups();
+    const deviceToGroup = resolveDeviceProfileGroups(groups);
     const profilesByDevice = {};
     for (const deviceId of devices.keys()) {
-      const names = groups.get(deviceToGroup.get(deviceId)) || [];
+      const names = (groups.get(deviceToGroup.get(deviceId)) || []).map(manifest => manifest.Name);
       profilesByDevice[deviceId] = [...new Set(names)].sort((a, b) => a.localeCompare(b));
     }
     return profilesByDevice;
@@ -400,12 +407,15 @@ function syncProfileTags(targets) {
 // Returns all profiles with their ownership/tagging status so the PI can show
 // which profiles will work with switchToProfile and which need patching.
 function getProfilesStatus() {
-  const byName = new Map(); // name → best status (deduplicate)
+  const byDeviceAndName = new Map();
   const STATUS_PRIORITY = { ready: 0, conflict: 1, smart: 2, plain: 3, other: 4, default: 5 };
   try {
-    for (const dir of fs.readdirSync(V3_DIR).filter(d => d.endsWith('.sdProfile'))) {
-      const m = readManifest(dir);
-      if (!m?.Name) continue;
+    const groups = getProfileGroups();
+    const groupToDevice = new Map(
+      [...resolveDeviceProfileGroups(groups)].map(([deviceId, groupId]) => [groupId, deviceId]),
+    );
+    for (const [groupId, manifests] of groups) {
+      for (const m of manifests) {
       let status;
       if (m.InstalledByPluginUUID === PLUGIN_ID) {
         status = m.AppIdentifier ? 'conflict' : 'ready';
@@ -418,13 +428,19 @@ function getProfilesStatus() {
       } else {
         status = 'plain';
       }
-      const existing = byName.get(m.Name);
+      const key = `${groupId}\0${m.Name}`;
+      const existing = byDeviceAndName.get(key);
       if (!existing || (STATUS_PRIORITY[status] ?? 99) < (STATUS_PRIORITY[existing.status] ?? 99)) {
-        byName.set(m.Name, { name: m.Name, status });
+          byDeviceAndName.set(key, {
+            name: m.Name,
+            status,
+            deviceId: groupToDevice.get(groupId) || groupId,
+          });
+        }
       }
     }
   } catch { /* non-fatal */ }
-  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return [...byDeviceAndName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // Tags specific profiles by name, regardless of whether they're in allTargets().
