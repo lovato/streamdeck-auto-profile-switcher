@@ -39,6 +39,7 @@ const STREAMDECK_INFO = (() => {
 const POLL_INTERVAL_MS   = 150;
 const STABLE_POLLS       = 2;   // require 2 consecutive detections (~300ms) before switching
 const TEST_DELAY_SECONDS = 3;
+const WEBSITE_URL        = "https://lovato.github.io/streamdeck-auto-profile-switcher/";
 
 const DEFAULT_APP_MAP = [];
 
@@ -747,6 +748,10 @@ function connect() {
     try { msg = JSON.parse(raw); } catch { return; }
 
     switch (msg.event) {
+      case "keyUp":
+        send({ event: "openUrl", payload: { url: WEBSITE_URL } });
+        break;
+
       case "deviceDidConnect":
         devices.set(msg.device, msg.deviceInfo || {});
         if (!deviceStates.has(msg.device)) deviceStates.set(msg.device, { lastProfile: null, pluginDepth: 0 });
