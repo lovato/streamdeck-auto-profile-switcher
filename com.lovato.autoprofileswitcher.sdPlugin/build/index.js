@@ -60,6 +60,40 @@ module.exports = { detectProfile, findProfileMatch, resolveProfileAssignments };
 
 /***/ }),
 
+/***/ 648:
+/***/ ((module) => {
+
+/**
+ * Removes assignments for devices absent from Stream Deck's registration
+ * catalog. Disabled devices remain in that catalog; forgotten devices do not.
+ */
+function removeForgottenDeviceAssignments(settings = {}, knownDeviceIds = []) {
+  const known = new Set(knownDeviceIds.filter(Boolean));
+  const source = Array.isArray(settings.appMap) ? settings.appMap : [];
+  let removed = 0;
+  const appMap = source
+    .map(entry => {
+      if (!Array.isArray(entry.assignments)) return entry;
+      const assignments = entry.assignments.filter(assignment => {
+        const keep = assignment?.deviceId && known.has(assignment.deviceId);
+        if (!keep) removed++;
+        return keep;
+      });
+      return { ...entry, assignments };
+    })
+    .filter(entry => entry.profile || entry.assignments?.length);
+
+  return {
+    settings: removed ? { ...settings, appMap } : settings,
+    removed,
+  };
+}
+
+module.exports = { removeForgottenDeviceAssignments };
+
+
+/***/ }),
+
 /***/ 736:
 /***/ ((module) => {
 
@@ -5274,6 +5308,7 @@ const {
   resolveProfileAssignments,
 } = __nccwpck_require__(361);
 const { transitionDeviceState } = __nccwpck_require__(736);
+const { removeForgottenDeviceAssignments } = __nccwpck_require__(648);
 
 // ─── StreamDeck connection args ───────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -5282,6 +5317,9 @@ const getArg = (flag) => { const i = args.indexOf(flag); return i !== -1 ? args[
 const PORT         = getArg("-port");
 const PLUGIN_UUID  = getArg("-pluginUUID");
 const REGISTER_EVT = getArg("-registerEvent");
+const STREAMDECK_INFO = (() => {
+  try { return JSON.parse(getArg("-info") || "{}"); } catch { return {}; }
+})();
 
 // ─── Configuration ────────────────────────────────────────────────────────────
 const POLL_INTERVAL_MS   = 150;
@@ -5572,6 +5610,19 @@ function saveManualPatches() {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(MANUAL_PATCH_FILE, JSON.stringify([...manualPatches]), { encoding: 'utf8' });
   } catch { /* non-fatal */ }
+}
+
+function removeMissingManualPatches() {
+  const existingProfiles = new Set(
+    [...getProfileGroups().values()].flat().map(manifest => manifest.Name),
+  );
+  const retained = [...manualPatches].filter(name => existingProfiles.has(name));
+  const removed = manualPatches.size - retained.length;
+  if (removed) {
+    manualPatches = new Set(retained);
+    saveManualPatches();
+  }
+  return removed;
 }
 
 // Persistent map of profileName → AppIdentifier path, written whenever we tag
@@ -5906,14 +5957,27 @@ function migrateLegacyProfileAssignments() {
 // ─── Apply settings from global store ────────────────────────────────────────
 function applySettings(settings) {
   globalSettings = { ...(settings || {}) };
+  const forgotten = removeForgottenDeviceAssignments(
+    globalSettings,
+    (STREAMDECK_INFO.devices || []).map(device => device?.id),
+  );
+  globalSettings = forgotten.settings;
   if (Object.hasOwn(globalSettings, "lastDetection")) {
     delete globalSettings.lastDetection;
+    setGlobalSettings(globalSettings);
+  } else if (forgotten.removed) {
     setGlobalSettings(globalSettings);
   }
   appMap = (Array.isArray(globalSettings.appMap) && globalSettings.appMap.length > 0)
     ? globalSettings.appMap
     : DEFAULT_APP_MAP;
   migrateLegacyProfileAssignments();
+  const removedPatches = removeMissingManualPatches();
+  if (forgotten.removed || removedPatches) {
+    logMessage(
+      `Removed ${forgotten.removed} assignment(s) and ${removedPatches} stale patch(es) for forgotten devices`,
+    );
+  }
   builtInMap = loadBuiltInProfileMap();
   buildProfileDirMap();
   if (appMap.length > 0) logMessage(`Loaded app map: ${appMap.length} custom rules, ${Object.keys(builtInMap).length} built-in Smart Profile apps`);
