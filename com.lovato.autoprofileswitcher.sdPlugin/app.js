@@ -651,7 +651,11 @@ function migrateLegacyProfileAssignments() {
 
 // ─── Apply settings from global store ────────────────────────────────────────
 function applySettings(settings) {
-  globalSettings = settings || {};
+  globalSettings = { ...(settings || {}) };
+  if (Object.hasOwn(globalSettings, "lastDetection")) {
+    delete globalSettings.lastDetection;
+    setGlobalSettings(globalSettings);
+  }
   appMap = (Array.isArray(globalSettings.appMap) && globalSettings.appMap.length > 0)
     ? globalSettings.appMap
     : DEFAULT_APP_MAP;
@@ -686,8 +690,6 @@ function runTestDetection() {
           profile: targets.length === 1 ? targets[0] : targets.length ? "(per-device assignments)" : "(no match)",
           profiles,
         };
-        globalSettings.lastDetection = result;
-        setGlobalSettings(globalSettings);
         sendToPI({ action: "detectionResult", ...result });
       });
     }

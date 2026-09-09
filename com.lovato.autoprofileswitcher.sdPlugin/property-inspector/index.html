@@ -321,7 +321,6 @@
       if (msg.event === "didReceiveGlobalSettings") {
         const s = msg.payload?.settings || {};
         renderRows(Array.isArray(s.appMap) && s.appMap.length ? s.appMap : DEFAULT_MAP);
-        if (s.lastDetection) showDetectionResult(s.lastDetection);
         // Request profiles list to populate the dropdowns
         sdConnection.send(JSON.stringify({
           event: "sendToPlugin", context: uuid,
@@ -597,9 +596,6 @@
 
   function addFromDetection() {
     if (!lastDetection?.proc) return;
-    const matched = lastDetection.profile &&
-      lastDetection.profile !== "(no match)" &&
-      lastDetection.profile !== "(per-device assignments)";
     addRow({
       match: lastDetection.proc,
       titleMatch: lastDetection.title || "",
@@ -607,6 +603,11 @@
     const newRow = document.getElementById("entries").lastElementChild;
     newRow.scrollIntoView({ behavior: "smooth" });
     newRow.querySelector(".match-input").focus();
+    lastDetection = null;
+    const result = document.getElementById("test-result");
+    result.textContent = "";
+    result.style.display = "none";
+    document.getElementById("add-detection-btn").style.display = "none";
   }
 
   // ── Profile status ────────────────────────────────────────────────────────
