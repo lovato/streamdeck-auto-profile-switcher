@@ -5788,12 +5788,17 @@ function sendToPI(payload) {
 }
 
 function getConnectedDevices() {
-  return [...devices].map(([id, info = {}]) => ({
-    id,
-    name: info.name || "Unnamed Stream Deck",
-    type: info.type,
-    size: info.size,
-  }));
+  return [...devices]
+    .map(([id, info = {}]) => ({
+      id,
+      name: info.name || "Unnamed Stream Deck",
+      type: info.type,
+      size: info.size,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    }));
 }
 
 function sendDevicesToPI() {

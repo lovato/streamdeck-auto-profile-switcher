@@ -301,6 +301,10 @@
   let pendingPatch       = false;
 
   const DEFAULT_MAP = [];
+  const alphabetical = (a, b) => a.localeCompare(b, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
 
   window.connectElgatoStreamDeckSocket = function(port, uuid, registerEvent, info, actionInfo) {
     actionContext = uuid;
@@ -364,7 +368,7 @@
     const blank = document.createElement("option");
     blank.value = ""; blank.textContent = "— select profile —";
     sel.appendChild(blank);
-    profiles.forEach(name => {
+    [...profiles].sort(alphabetical).forEach(name => {
       const opt = document.createElement("option");
       opt.value = name; opt.textContent = name;
       if (name === current) opt.selected = true;
@@ -438,6 +442,7 @@
         displayedDevices.push({ id: deviceId, name: `Disconnected device (${deviceId.slice(0, 8)}…)` });
       }
     });
+    displayedDevices.sort((a, b) => alphabetical(a.name, b.name));
     displayedDevices.forEach(device => {
       const assignment = document.createElement("div");
       assignment.className = "assignment-row";
