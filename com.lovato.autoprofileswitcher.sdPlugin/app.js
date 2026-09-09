@@ -30,6 +30,9 @@ const getArg = (flag) => { const i = args.indexOf(flag); return i !== -1 ? args[
 const PORT         = getArg("-port");
 const PLUGIN_UUID  = getArg("-pluginUUID");
 const REGISTER_EVT = getArg("-registerEvent");
+const STREAMDECK_INFO = (() => {
+  try { return JSON.parse(getArg("-info") || "{}"); } catch { return {}; }
+})();
 
 // ─── Configuration ────────────────────────────────────────────────────────────
 const POLL_INTERVAL_MS   = 150;
@@ -51,6 +54,19 @@ let stableProc     = '';
 let stableCount    = 0;
 let isTesting      = false;
 let settingsOpen   = false;
+
+// deviceDidConnect is only emitted for devices connected after the plugin has
+// started. Seed the inventory from Stream Deck's startup info so every deck
+// already connected is available for assignments and switching.
+for (const device of STREAMDECK_INFO.devices || []) {
+  if (!device?.id) continue;
+  devices.set(device.id, {
+    name: device.name,
+    type: device.type,
+    size: device.size,
+  });
+  deviceStates.set(device.id, { lastProfile: null, pluginDepth: 0 });
+}
 
 // ─── Persistent PowerShell process ───────────────────────────────────────────
 // Spawns once and compiles the Win32 P/Invoke helper once. Each query sends a
@@ -165,14 +181,52 @@ function readManifest(dir) {
   } catch { return null; }
 }
 
-function getProfileNames() {
+function getProfilesByDevice() {
   try {
-    const names = fs.readdirSync(V3_DIR)
+    const groups = new Map();
+    fs.readdirSync(V3_DIR)
       .filter(d => d.endsWith('.sdProfile'))
-      .map(d => readManifest(d)?.Name || null)
-      .filter(Boolean);
-    return [...new Set(names)].sort((a, b) => a.localeCompare(b));
-  } catch { return []; }
+      .forEach(dir => {
+        const manifest = readManifest(dir);
+        const profileDeviceId = manifest?.Device?.UUID;
+        if (!manifest?.Name || !profileDeviceId) return;
+        if (!groups.has(profileDeviceId)) groups.set(profileDeviceId, []);
+        groups.get(profileDeviceId).push(manifest.Name);
+      });
+
+    const deviceToGroup = new Map();
+    const claimedGroups = new Set();
+
+    // Saved assignments bridge the two unrelated identifier systems: the
+    // assignment contains the SDK's opaque device ID and a profile name, while
+    // ProfilesV3 tells us which hardware profile group owns that profile.
+    for (const entry of appMap) {
+      for (const assignment of entry.assignments || []) {
+        if (!devices.has(assignment?.deviceId) || !assignment.profile) continue;
+        const matches = [...groups].filter(([, names]) => names.includes(assignment.profile));
+        if (matches.length !== 1) continue;
+        const [profileDeviceId] = matches[0];
+        deviceToGroup.set(assignment.deviceId, profileDeviceId);
+        claimedGroups.add(profileDeviceId);
+      }
+    }
+
+    // Once explicit assignments identify the otherwise ambiguous physical
+    // decks, pair any remaining devices/groups when the relationship is unique
+    // (for example, one Stream Deck Mobile and one mobile profile group).
+    const unmatchedDevices = [...devices.keys()].filter(id => !deviceToGroup.has(id));
+    const unmatchedGroups = [...groups.keys()].filter(id => !claimedGroups.has(id));
+    if (unmatchedDevices.length === 1 && unmatchedGroups.length === 1) {
+      deviceToGroup.set(unmatchedDevices[0], unmatchedGroups[0]);
+    }
+
+    const profilesByDevice = {};
+    for (const deviceId of devices.keys()) {
+      const names = groups.get(deviceToGroup.get(deviceId)) || [];
+      profilesByDevice[deviceId] = [...new Set(names)].sort((a, b) => a.localeCompare(b));
+    }
+    return profilesByDevice;
+  } catch { return {}; }
 }
 
 // ─── Built-in Smart Profile mirror ───────────────────────────────────────────
@@ -567,12 +621,36 @@ function stopPolling() {
   if (resyncTimer){ clearInterval(resyncTimer); resyncTimer = null; }
 }
 
+// Older versions stored one `profile` per rule, which broadcast to every
+// device. Per-device rules deliberately have no fallback: migrate each legacy
+// target to the first Stream Deck we detect and persist it before rendering the
+// new editor. Existing explicit assignments remain unchanged.
+function migrateLegacyProfileAssignments() {
+  const firstDeviceId = devices.keys().next().value;
+  if (!firstDeviceId || !appMap.some(entry => entry?.profile)) return false;
+
+  appMap = appMap.map(entry => {
+    if (!entry?.profile) return entry;
+    const { profile, assignments: existingAssignments, ...rule } = entry;
+    const assignments = Array.isArray(existingAssignments) ? [...existingAssignments] : [];
+    if (!assignments.some(assignment => assignment?.deviceId === firstDeviceId)) {
+      assignments.push({ deviceId: firstDeviceId, profile });
+    }
+    return { ...rule, assignments };
+  });
+  globalSettings = { ...globalSettings, appMap };
+  setGlobalSettings(globalSettings);
+  logMessage(`Migrated legacy profile rules to device ${firstDeviceId}`);
+  return true;
+}
+
 // ─── Apply settings from global store ────────────────────────────────────────
 function applySettings(settings) {
   globalSettings = settings || {};
   appMap = (Array.isArray(globalSettings.appMap) && globalSettings.appMap.length > 0)
     ? globalSettings.appMap
     : DEFAULT_APP_MAP;
+  migrateLegacyProfileAssignments();
   builtInMap = loadBuiltInProfileMap();
   buildProfileDirMap();
   if (appMap.length > 0) logMessage(`Loaded app map: ${appMap.length} custom rules, ${Object.keys(builtInMap).length} built-in Smart Profile apps`);
@@ -633,6 +711,7 @@ function connect() {
       case "deviceDidConnect":
         devices.set(msg.device, msg.deviceInfo || {});
         if (!deviceStates.has(msg.device)) deviceStates.set(msg.device, { lastProfile: null, pluginDepth: 0 });
+        migrateLegacyProfileAssignments();
         logMessage(`Device connected: ${msg.device}`);
         startPolling();
         if (settingsOpen) sendDevicesToPI();
@@ -651,6 +730,7 @@ function connect() {
           devices.set(msg.device, {});
           deviceStates.set(msg.device, { lastProfile: null, pluginDepth: 0 });
         }
+        migrateLegacyProfileAssignments();
         if (!pollTimer) startPolling();
         if (settingsOpen) sendDevicesToPI();
         break;
@@ -663,7 +743,7 @@ function connect() {
         builtInMap = loadBuiltInProfileMap();
         buildProfileDirMap();
         syncProfileTags(allTargets());
-        sendToPI({ action: "profilesList", profiles: getProfileNames() });
+        sendToPI({ action: "profilesList", profilesByDevice: getProfilesByDevice() });
         sendToPI({ action: "profilesStatus", profiles: getProfilesStatus() });
         sendDevicesToPI();
         break;
@@ -688,7 +768,7 @@ function connect() {
           runTestDetection();
         }
         if (msg.payload?.action === "getProfiles") {
-          sendToPI({ action: "profilesList", profiles: getProfileNames() });
+          sendToPI({ action: "profilesList", profilesByDevice: getProfilesByDevice() });
         }
         if (msg.payload?.action === "getProfilesStatus") {
           sendToPI({ action: "profilesStatus", profiles: getProfilesStatus() });
