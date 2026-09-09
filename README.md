@@ -210,7 +210,7 @@ Run `task` with no arguments to list all available tasks.
 | `task uninstall` | Untag all plugin-owned profiles and remove the plugin |
 | `task deps` | Install npm dependencies |
 | `task build` | Bundle `app.js` + dependencies → `build/index.js` via ncc |
-| `task pack` | Build and package into `dist/*.streamDeckPlugin` |
+| `task pack` | Build the installer and a Git-SHA-named shareable zip |
 | `task pack:release` | Build and package using the version from the latest git tag |
 | `task restart` | Restart the StreamDeck application |
 
@@ -221,6 +221,7 @@ To create a `.streamDeckPlugin` installer file (for sharing or Marketplace submi
 ```bash
 task pack
 # → dist/com.lovato.autoprofileswitcher.streamDeckPlugin
+# → dist/com.lovato.autoprofileswitcher.<git-sha>.zip
 ```
 
 The installer can be shared directly with users (double-click to install) or submitted to the Elgato Marketplace.
