@@ -226,15 +226,17 @@ task pack
 
 The installer can be shared directly with users (double-click to install) or submitted to the Elgato Marketplace.
 
-### Versioned releases
+### Automated releases
 
-Tag a git release, then package with the version embedded:
+Every successful push to `dev` replaces the rolling
+[`dev-latest`](https://github.com/lovato/streamdeck-auto-profile-switcher/releases/tag/dev-latest)
+prerelease. It contains both the installer and a Git-SHA-named zip, so testers
+always have one stable download page for the newest development build.
 
-```bash
-git tag v1.1.0 && git push --tags
-task pack:release
-# → dist/com.lovato.autoprofileswitcher.streamDeckPlugin (v1.1.0)
-```
+Production releases are created from the `release` branch. Bump the manifest
+version on `dev`, then merge `dev` into `release`. GitHub Actions packages the
+plugin and creates the corresponding immutable tag and GitHub Release
+automatically. Do not create release tags manually.
 
 ---
 
