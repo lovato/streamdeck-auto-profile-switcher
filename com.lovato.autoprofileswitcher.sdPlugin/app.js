@@ -18,6 +18,7 @@ const { spawn } = require("child_process");
 const crypto     = require("crypto");
 const fs         = require("fs");
 const path       = require("path");
+const { Version: PLUGIN_VERSION } = require("./manifest.json");
 const {
   findProfileMatch,
 } = require("./lib/detect");
@@ -586,6 +587,7 @@ function sendDeviceConfiguration(context, deviceId) {
   const profilesByDevice = getProfilesByDevice();
   sendToPI({
     action: "deviceConfiguration",
+    version: PLUGIN_VERSION,
     device: getConnectedDevices().find(device => device.id === deviceId) || { id: deviceId },
     appMap: getDeviceRules(appMap, deviceId),
     profiles: profilesByDevice[deviceId] || [],

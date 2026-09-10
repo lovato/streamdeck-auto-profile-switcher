@@ -243,11 +243,17 @@
     }
 
     .profile-status-force:hover { background: #4a2a10; color: #ffc070; }
+
+    .version {
+      color: #888;
+      font-size: 12px;
+      font-weight: normal;
+    }
   </style>
 </head>
 <body>
 
-  <h2>Auto Profile Switcher</h2>
+  <h2>Auto Profile Switcher <span id="plugin-version" class="version"></span></h2>
   <p class="description">
     <b>Maps any Windows processes to StreamDeck profile names.</b><br>
     <li/>Process name works by partial match (e.g. "teams" matches "ms-teams.exe").
@@ -341,6 +347,8 @@
         }
 
         if (p?.action === "deviceConfiguration") {
+          document.getElementById("plugin-version").textContent =
+            p.version ? `v${p.version}` : "";
           currentDevice = p.device || null;
           knownProfiles = p.profiles || [];
           renderRows(Array.isArray(p.appMap) ? p.appMap : DEFAULT_MAP);

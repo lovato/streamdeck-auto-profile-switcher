@@ -5292,6 +5292,14 @@ module.exports = require("url");
 "use strict";
 module.exports = require("zlib");
 
+/***/ }),
+
+/***/ 799:
+/***/ ((module) => {
+
+"use strict";
+module.exports = /*#__PURE__*/JSON.parse('{"Author":"Marco Lovato","Category":"Auto Profile Switcher","CategoryIcon":"images/category","CodePath":"build/index.js","Description":"Switches StreamDeck profiles based on the active foreground window. Supports MSIX/WindowsApps (Teams, WhatsApp, Terminal) and window title matching — both impossible with the built-in Smart Profile feature.","Name":"Auto Profile Switcher","Icon":"images/plugin","URL":"https://github.com/lovato/streamdeck-auto-profile-switcher","Version":"1.1.0.0","UUID":"com.lovato.autoprofileswitcher","SDKVersion":3,"Software":{"MinimumVersion":"6.9"},"OS":[{"Platform":"windows","MinimumVersion":"10"}],"ApplicationsToMonitor":{"windows":[],"mac":[]},"Nodejs":{"Version":"20","Debug":"enabled"},"Actions":[{"Icon":"images/action","Name":"Auto Profile Switcher","States":[{"Image":"images/key","Title":"Auto Profile Switcher"}],"SupportedInMultiActions":false,"Tooltip":"Switches profiles based on the active window — supports MSIX apps and window title matching","UUID":"com.lovato.autoprofileswitcher.monitor","PropertyInspectorPath":"property-inspector/index.html"}]}');
+
 /***/ })
 
 /******/ 	});
@@ -5353,6 +5361,7 @@ const { spawn } = __nccwpck_require__(317);
 const crypto     = __nccwpck_require__(982);
 const fs         = __nccwpck_require__(896);
 const path       = __nccwpck_require__(928);
+const { Version: PLUGIN_VERSION } = __nccwpck_require__(799);
 const {
   findProfileMatch,
 } = __nccwpck_require__(361);
@@ -5921,6 +5930,7 @@ function sendDeviceConfiguration(context, deviceId) {
   const profilesByDevice = getProfilesByDevice();
   sendToPI({
     action: "deviceConfiguration",
+    version: PLUGIN_VERSION,
     device: getConnectedDevices().find(device => device.id === deviceId) || { id: deviceId },
     appMap: getDeviceRules(appMap, deviceId),
     profiles: profilesByDevice[deviceId] || [],
