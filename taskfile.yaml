@@ -2,6 +2,7 @@ version: '3'
 
 vars:
   PLUGIN_DIR: com.lovato.autoprofileswitcher.sdPlugin
+  PLUGIN_NAME: com.lovato.autoprofileswitcher
   DOCS_DIR: docs
 
 tasks:
@@ -89,17 +90,18 @@ tasks:
       - npx @vercel/ncc build app.js --out build/
 
   restart:
-    desc: Restart the StreamDeck application
+    desc: Restart StreamDeck and verify it stopped and started
     cmds:
-      - powershell.exe -NonInteractive -ExecutionPolicy Bypass -Command "Stop-Process -Name 'StreamDeck' -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; Start-Process '$env:ProgramFiles\Elgato\StreamDeck\StreamDeck.exe'"
+      - powershell.exe -NonInteractive -ExecutionPolicy Bypass -File deploy.ps1 -RestartOnly
 
   pack:
-    desc: Build and package plugin into .streamDeckPlugin installer
+    desc: Build plugin and create installer plus SHA-named zip
     deps: [build]
     dir: '{{.PLUGIN_DIR}}'
     cmds:
       - mkdir -p ../dist
       - npx streamdeck pack . -o ../dist/ --force --no-update-check
+      - zip -j "../dist/{{.PLUGIN_NAME}}.$(git rev-parse --short HEAD).zip" "../dist/{{.PLUGIN_NAME}}.streamDeckPlugin"
 
   pack:release:
     desc: Build and package plugin with version from latest git tag

@@ -10,6 +10,7 @@ Stream Deck starts
 Plugin connects via WebSocket
        │
        ├─ Loads app-map rules from global settings
+       ├─ Tracks all connected Stream Deck devices
        ├─ Mirrors built-in Smart Profile targets (AppIdentifier)
        └─ Polls every 150 ms (persistent PowerShell → Win32)
               │
@@ -19,8 +20,11 @@ Plugin connects via WebSocket
               ▼
        Match rules (title-specific → process-only → built-in map)
               │
-              ├─ Match  → switchToProfile("ProfileName")
-              └─ No match → switchToProfile("")  (release to built-in)
+              ▼
+       Resolve targets for each connected device
+              │
+              ├─ Match  → switchToProfile(device, "ProfileName")
+              └─ No match → switchToProfile(device, "")  (release to built-in)
 ```
 
 ## Stability
@@ -34,6 +38,17 @@ A process must appear in **two consecutive polls** (~300 ms) before switching. T
 ## Stack depth
 
 Each plugin switch pushes onto Stream Deck's internal stack. `switchToProfile("")` pops one level — the plugin tracks depth and may call it multiple times when peeling back through several plugin-owned profiles.
+
+## Multiple Stream Decks
+
+Rules can use a fallback profile for all devices and optional profile overrides
+for individual devices. The plugin maintains `lastProfile` and stack depth per
+device, including the initial release and 50 ms delay, so one device's profile
+history cannot affect another's. Built-in Smart Profile fallback uses the same
+profile name for every connected device.
+
+Profile manifests are machine-global and indexed by name. Use distinct names
+for profiles assigned to different devices.
 
 ## Further reading
 

@@ -58,14 +58,31 @@
 
     .row {
       display: grid;
-      grid-template-columns: 20px 1fr 1fr 1fr 24px;
+      grid-template-columns: 20px minmax(90px, 1fr) minmax(90px, 1fr) minmax(120px, 1.2fr) 24px;
       gap: 6px;
       align-items: center;
       margin-bottom: 6px;
+      padding: 6px;
+      background: #252525;
+      border: 1px solid #3d3d3d;
+      border-radius: 5px;
       cursor: default;
     }
 
     .row input { margin-bottom: 0; }
+    .col-label {
+      display: grid;
+      grid-template-columns: 20px minmax(90px, 1fr) minmax(90px, 1fr) minmax(120px, 1.2fr) 24px;
+      gap: 6px;
+      padding: 0 6px;
+      margin-bottom: 4px;
+    }
+    .col-label span {
+      font-size: 10px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
 
     .drag-handle {
       color: #666;
@@ -101,18 +118,12 @@
 
     .remove-btn:hover { border-color: #e05555; color: #e05555; }
 
-    .col-label {
-      display: grid;
-      grid-template-columns: 20px 1fr 1fr 1fr 24px;
-      gap: 6px;
-      margin-bottom: 4px;
-    }
+    .row select { margin-bottom: 0; }
 
-    .col-label span {
-      font-size: 10px;
-      color: #666;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+    @media (max-width: 420px) {
+      .row, .col-label {
+        grid-template-columns: 20px minmax(75px, 1fr) minmax(75px, 1fr) minmax(95px, 1fr) 24px;
+      }
     }
 
     .btn {
@@ -177,6 +188,14 @@
       color: #fff;
     }
 
+    .profile-device-section { margin-bottom: 12px; }
+    .profile-device-name {
+      padding: 5px 0 3px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #ccc;
+    }
+
     .profile-status-row {
       display: flex;
       align-items: center;
@@ -233,19 +252,18 @@
     <b>Maps any Windows processes to StreamDeck profile names.</b><br>
     <li/>Process name works by partial match (e.g. "teams" matches "ms-teams.exe").
     <li/>Optionally add a window title match for finer control (e.g. "PowerShell" matches "Windows PowerShell").
-    <li/>Finally, select the profile to switch to when a match is found.
+    <li/>This action configures only the Stream Deck where it is placed.
   </p>
 
   <br>
 
   <div class="col-label">
     <span></span>
-    <span>Process Name</span>
-    <span>Title Match</span>
+    <span>Process name</span>
+    <span>Title match</span>
     <span>Profile</span>
     <span></span>
   </div>
-
   <div id="entries"></div>
 
   <button class="btn" onclick="addRow()">Add new entry</button>
@@ -285,12 +303,17 @@
   // ── StreamDeck Property Inspector SDK connection ──────────────────────────
   let sdConnection      = null;
   let actionContext      = null;
+  let currentDevice      = null;
   let knownProfiles      = [];
   let lastDetection      = null;
   let profilesStatusData = [];
   let pendingPatch       = false;
 
   const DEFAULT_MAP = [];
+  const alphabetical = (a, b) => a.localeCompare(b, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
 
   window.connectElgatoStreamDeckSocket = function(port, uuid, registerEvent, info, actionInfo) {
     actionContext = uuid;
@@ -298,23 +321,15 @@
 
     sdConnection.onopen = () => {
       sdConnection.send(JSON.stringify({ event: registerEvent, uuid }));
-      sdConnection.send(JSON.stringify({ event: "getGlobalSettings", context: uuid }));
+      sdConnection.send(JSON.stringify({
+        event: "sendToPlugin", context: uuid,
+        action: "com.lovato.autoprofileswitcher.monitor",
+        payload: { action: "getDeviceConfiguration" },
+      }));
     };
 
     sdConnection.onmessage = (evt) => {
       const msg = JSON.parse(evt.data);
-
-      if (msg.event === "didReceiveGlobalSettings") {
-        const s = msg.payload?.settings || {};
-        renderRows(Array.isArray(s.appMap) && s.appMap.length ? s.appMap : DEFAULT_MAP);
-        if (s.lastDetection) showDetectionResult(s.lastDetection);
-        // Request profiles list to populate the dropdowns
-        sdConnection.send(JSON.stringify({
-          event: "sendToPlugin", context: uuid,
-          action: "com.lovato.autoprofileswitcher.monitor",
-          payload: { action: "getProfiles" },
-        }));
-      }
 
       if (msg.event === "sendToPropertyInspector") {
         const p   = msg.payload;
@@ -325,7 +340,12 @@
           el.innerHTML = `Switch to your app — capturing in <strong style="color:#fff">${p.seconds}s</strong>`;
         }
 
-        if (p?.action === "profilesList")   populateProfileSelects(p.profiles);
+        if (p?.action === "deviceConfiguration") {
+          currentDevice = p.device || null;
+          knownProfiles = p.profiles || [];
+          renderRows(Array.isArray(p.appMap) ? p.appMap : DEFAULT_MAP);
+          renderProfilesStatus(p.profilesStatus || []);
+        }
         if (p?.action === "profilesStatus")  {
           if (pendingPatch) {
             setPatchNote('✓ Patched — restart StreamDeck to activate', '#7cb87c');
@@ -340,14 +360,14 @@
   };
 
   // ── Row rendering ────────────────────────────────────────────────────────
-  function buildProfileSelect(current) {
+  function buildProfileSelect(current, className = "profile-input") {
     const sel = document.createElement("select");
-    sel.className = "profile-input";
+    sel.className = className;
     sel.style.marginBottom = "0";
     const blank = document.createElement("option");
     blank.value = ""; blank.textContent = "— select profile —";
     sel.appendChild(blank);
-    knownProfiles.forEach(name => {
+    [...knownProfiles].sort(alphabetical).forEach(name => {
       const opt = document.createElement("option");
       opt.value = name; opt.textContent = name;
       if (name === current) opt.selected = true;
@@ -362,27 +382,14 @@
     return sel;
   }
 
-  function populateProfileSelects(profiles) {
-    knownProfiles = profiles;
-    document.querySelectorAll(".profile-input").forEach(sel => {
-      const current = sel.value;
-      while (sel.options.length > 1) sel.remove(1);
-      profiles.forEach(name => {
-        const opt = document.createElement("option");
-        opt.value = name; opt.textContent = name;
-        if (name === current) opt.selected = true;
-        sel.appendChild(opt);
-      });
-    });
-  }
-
   function renderRows(map) {
     const container = document.getElementById("entries");
     container.innerHTML = "";
-    map.forEach(entry => addRow(entry.match, entry.titleMatch || "", entry.profile));
+    map.forEach(entry => addRow(entry));
   }
 
-  function addRow(match = "", titleMatch = "", profile = "") {
+  function addRow(entry = {}) {
+    const { match = "", titleMatch = "", profile = "" } = entry;
     const container = document.getElementById("entries");
     const row = document.createElement("div");
     row.className = "row";
@@ -393,10 +400,20 @@
     grip.textContent = "⠿";
     row.appendChild(grip);
 
-    row.innerHTML += `
-      <input type="text" placeholder="e.g. ms-teams"   value="${match}"      class="match-input" />
-      <input type="text" placeholder="e.g. PowerShell" value="${titleMatch}" class="title-input" />
-    `;
+    const processInput = document.createElement("input");
+    processInput.type = "text";
+    processInput.placeholder = "e.g. ms-teams";
+    processInput.value = match;
+    processInput.className = "match-input";
+    row.appendChild(processInput);
+
+    const titleInput = document.createElement("input");
+    titleInput.type = "text";
+    titleInput.placeholder = "optional";
+    titleInput.value = titleMatch;
+    titleInput.className = "title-input";
+    row.appendChild(titleInput);
+
     row.appendChild(buildProfileSelect(profile));
     const btn = document.createElement("button");
     btn.className = "remove-btn";
@@ -464,8 +481,9 @@
       .map(r => {
         const entry = {
           match:   r.querySelector(".match-input").value.trim(),
-          profile: r.querySelector(".profile-input").value.trim(),
         };
+        const profile = r.querySelector(".profile-input").value.trim();
+        if (profile) entry.profile = profile;
         const t = r.querySelector(".title-input").value.trim();
         if (t) entry.titleMatch = t;
         return entry;
@@ -481,7 +499,7 @@
       event:   "sendToPlugin",
       context: actionContext,
       action:  "com.lovato.autoprofileswitcher.monitor",
-      payload: { action: "saveSettings", settings: { appMap } },
+      payload: { action: "saveDeviceSettings", appMap },
     }));
     const status = document.getElementById("status");
     status.textContent = "✓ Saved";
@@ -505,12 +523,18 @@
 
   function addFromDetection() {
     if (!lastDetection?.proc) return;
-    const matched = lastDetection.profile && lastDetection.profile !== "(no match)";
-    const fallback = knownProfiles.find(p => p.toLowerCase().startsWith("default")) || "";
-    addRow(lastDetection.proc, lastDetection.title || "", matched ? lastDetection.profile : fallback);
+    addRow({
+      match: lastDetection.proc,
+      titleMatch: lastDetection.title || "",
+    });
     const newRow = document.getElementById("entries").lastElementChild;
     newRow.scrollIntoView({ behavior: "smooth" });
     newRow.querySelector(".match-input").focus();
+    lastDetection = null;
+    const result = document.getElementById("test-result");
+    result.textContent = "";
+    result.style.display = "none";
+    document.getElementById("add-detection-btn").style.display = "none";
   }
 
   // ── Profile status ────────────────────────────────────────────────────────
@@ -535,22 +559,27 @@
       return;
     }
 
-    list.innerHTML = profilesStatusData.map((p, i) => {
-      const info      = STATUS_INFO[p.status] || { label: p.status, color: '#888' };
-      const canPatch  = p.status === 'smart' || p.status === 'plain' || p.status === 'conflict';
-      const canForce  = p.status === 'other';
-      const safeName  = p.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-      const actionBtn = canPatch
-        ? `<button class="profile-status-patch" data-patch-index="${i}">Patch</button>`
-        : canForce
-          ? `<button class="profile-status-force" data-force-index="${i}" title="Take over ownership from another plugin">Force</button>`
-          : '';
-      return `<div class="profile-status-row">
-        <span class="profile-status-name" title="${safeName}">${safeName}</span>
-        <span class="profile-status-badge" style="color:${info.color}">${info.label}</span>
-        ${actionBtn}
-      </div>`;
-    }).join('');
+    const escapeHtml = value => String(value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    list.innerHTML = profilesStatusData
+      .sort((a, b) => alphabetical(a.name, b.name))
+      .map((p, index) => {
+        const info = STATUS_INFO[p.status] || { label: p.status, color: '#888' };
+        const canPatch = p.status === 'smart' || p.status === 'plain' || p.status === 'conflict';
+        const canForce = p.status === 'other';
+        const safeName = escapeHtml(p.name);
+        const actionBtn = canPatch
+          ? `<button class="profile-status-patch" data-patch-index="${index}">Patch</button>`
+          : canForce
+            ? `<button class="profile-status-force" data-force-index="${index}" title="Take over ownership from another plugin">Force</button>`
+            : '';
+        return `<div class="profile-status-row">
+          <span class="profile-status-name" title="${safeName}">${safeName}</span>
+          <span class="profile-status-badge" style="color:${info.color}">${info.label}</span>
+          ${actionBtn}
+        </div>`;
+      }).join('');
 
     const patchable = profilesStatusData.filter(p =>
       p.status === 'smart' || p.status === 'plain' || p.status === 'conflict'

@@ -27,9 +27,17 @@ The plugin does not replace Elgato's built-in Smart Profiles:
 
 When no rule matches, the plugin calls `switchToProfile("")` so the built-in feature can take over.
 
+## Multiple Stream Decks
+
+Assign a different profile to each enabled Stream Deck. Device-specific dropdowns contain only profiles that can be switched on that device.
+
+Disabled devices stay hidden without losing configuration. Forgotten-device data is cleaned up on the next plugin start.
+
+[Configure multiple Stream Decks](./multiple-devices/)
+
 ## Property inspector
 
-- **Live profile dropdown** — pick from your real profile names.
+- **Per-device profile dropdowns** — pick from profiles that belong to each Stream Deck.
 - **Test detection** — capture process + title from any focused window.
-- **Profile patch list** — see which profiles are ready, conflicted, or need patching.
+- **Grouped Profile Status** — inspect and patch profiles under their device name.
 - **Safe configuration** — no switching while the inspector is open.

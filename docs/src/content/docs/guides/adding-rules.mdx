@@ -3,13 +3,17 @@ title: Adding rules
 description: Configure app-map rules from test detection or manually.
 ---
 
+import { Steps } from '@astrojs/starlight/components';
+
 ## From test detection (easiest)
 
+<Steps>
 1. Open the property inspector for Auto Profile Switcher.
 2. Click **Test detection** and focus the target app within 3 seconds.
 3. Click **+ Add this to App List** — process name and title are pre-filled.
-4. Choose the target profile from the dropdown.
+4. Choose a profile for each enabled Stream Deck you want the rule to manage.
 5. Save settings.
+</Steps>
 
 ## Manual entry
 
@@ -19,9 +23,16 @@ Each rule has:
 | --- | --- |
 | **Match** | Process name substring (e.g. `calc`, `windowsterminal`) |
 | **Title match** | Optional window title substring |
-| **Profile** | Stream Deck profile to activate |
+| **Device name** | Optional profile assignment for that enabled Stream Deck |
 
-Leave **Title match** empty for a process-only rule.
+Leave **Title match** empty for a process-only rule. Devices without an
+assignment are released to their previous or built-in Smart Profile behavior.
+
+Device assignments are saved by Stream Deck device ID. Assignments for a
+disabled device remain saved but hidden and are restored when it is re-enabled.
+Forgetting a device removes its assignments on the next plugin start.
+
+Each device dropdown lists only profiles that belong to that Stream Deck.
 
 ## Finding process names
 
