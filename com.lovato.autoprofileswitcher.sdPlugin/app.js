@@ -15,14 +15,18 @@
 
 const WebSocket = require("ws");
 const { spawn } = require("child_process");
+const crypto     = require("crypto");
 const fs         = require("fs");
 const path       = require("path");
 const {
   findProfileMatch,
-  resolveProfileAssignments,
 } = require("./lib/detect");
 const { transitionDeviceState } = require("./lib/device-state");
-const { removeForgottenDeviceAssignments } = require("./lib/device-settings");
+const {
+  getDeviceRules,
+  removeForgottenDeviceAssignments,
+  replaceDeviceRules,
+} = require("./lib/device-settings");
 
 // ─── StreamDeck connection args ───────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -46,6 +50,9 @@ const DEFAULT_APP_MAP = [];
 // ─── State ────────────────────────────────────────────────────────────────────
 let ws             = null;
 let actionContext  = null;
+let inspectorContext = null;
+let inspectorDeviceId = null;
+const actionDevices = new Map(); // action context → deviceId
 const devices      = new Map(); // deviceId → deviceInfo
 const deviceStates = new Map(); // deviceId → { lastProfile, pluginDepth }
 let appMap         = DEFAULT_APP_MAP;
@@ -185,13 +192,28 @@ function getProfileGroups() {
 function resolveDeviceProfileGroups(groups) {
   const deviceToGroup = new Map();
   const claimedGroups = new Set();
+  const knownDeviceIds = new Set(
+    (STREAMDECK_INFO.devices || []).map(device => device?.id).filter(Boolean),
+  );
+
+  // Stream Deck derives the SDK's opaque device ID by MD5-hashing the
+  // ProfilesV3 Device.UUID. This gives us a deterministic mapping even for a
+  // newly added deck that has no saved rule assignments yet.
+  for (const profileDeviceId of groups.keys()) {
+    const sdkDeviceId = crypto.createHash('md5').update(profileDeviceId).digest('hex');
+    if (!devices.has(sdkDeviceId)) continue;
+    deviceToGroup.set(sdkDeviceId, profileDeviceId);
+    claimedGroups.add(profileDeviceId);
+  }
 
   // Saved assignments bridge the two unrelated identifier systems: the
   // assignment contains the SDK's opaque device ID and a profile name, while
-  // ProfilesV3 tells us which hardware profile group owns that profile.
+  // ProfilesV3 tells us which hardware profile group owns that profile. Keep
+  // this as a fallback for device types that do not use the physical UUID hash.
   for (const entry of appMap) {
     for (const assignment of entry.assignments || []) {
-      if (!devices.has(assignment?.deviceId) || !assignment.profile) continue;
+      if (!knownDeviceIds.has(assignment?.deviceId) || !assignment.profile) continue;
+      if (deviceToGroup.has(assignment.deviceId)) continue;
       const matches = [...groups].filter(([, manifests]) =>
         manifests.some(manifest => manifest.Name === assignment.profile));
       if (matches.length !== 1) continue;
@@ -418,7 +440,7 @@ function getProfilesStatus() {
     );
     for (const [groupId, manifests] of groups) {
       const deviceId = groupToDevice.get(groupId);
-      if (!deviceId) continue;
+      if (!deviceId || !devices.has(deviceId)) continue;
       for (const m of manifests) {
       let status;
       if (m.InstalledByPluginUUID === PLUGIN_ID) {
@@ -477,8 +499,9 @@ function patchProfiles(names, force = false) {
 }
 
 // ─── Profile detection ────────────────────────────────────────────────────────
-function detectProfileMatch(proc, title = '') {
-  return findProfileMatch(proc, title, appMap, builtInMap);
+function detectDeviceProfile(proc, title, deviceId) {
+  const match = findProfileMatch(proc, title, getDeviceRules(appMap, deviceId), builtInMap);
+  return match?.type === 'builtIn' ? match.profile : match?.entry?.profile || null;
 }
 
 // ─── Profile directory index ──────────────────────────────────────────────────
@@ -545,14 +568,29 @@ function logMessage(msg) {
   send({ event: "logMessage", context: actionContext || PLUGIN_UUID, payload: { message: `[WindowsApps Switcher] ${msg}` } });
 }
 
-function sendToPI(payload) {
-  if (!actionContext) return;
+function sendToPI(payload, context = actionContext) {
+  if (!context) return;
   send({
     event:   "sendToPropertyInspector",
-    context: actionContext,
+    context,
     action:  "com.lovato.autoprofileswitcher.monitor",
     payload,
   });
+}
+
+function sendDeviceConfiguration(context, deviceId) {
+  if (!deviceId) {
+    sendToPI({ action: "deviceConfiguration", error: "Unable to identify this Stream Deck." }, context);
+    return;
+  }
+  const profilesByDevice = getProfilesByDevice();
+  sendToPI({
+    action: "deviceConfiguration",
+    device: getConnectedDevices().find(device => device.id === deviceId) || { id: deviceId },
+    appMap: getDeviceRules(appMap, deviceId),
+    profiles: profilesByDevice[deviceId] || [],
+    profilesStatus: getProfilesStatus().filter(profile => profile.deviceId === deviceId),
+  }, context);
 }
 
 function getConnectedDevices() {
@@ -569,8 +607,10 @@ function getConnectedDevices() {
     }));
 }
 
-function sendDevicesToPI() {
-  sendToPI({ action: "devicesList", devices: getConnectedDevices() });
+function refreshInspectorConfiguration() {
+  if (settingsOpen && inspectorContext && inspectorDeviceId) {
+    sendDeviceConfiguration(inspectorContext, inspectorDeviceId);
+  }
 }
 
 // ─── Poll loop ────────────────────────────────────────────────────────────────
@@ -594,11 +634,10 @@ async function pollOnce() {
     }
     if (stableCount < STABLE_POLLS) return;
 
-    const match = detectProfileMatch(proc, title);
-    const targets = resolveProfileAssignments(match, devices.keys());
     const transitions = [];
 
-    for (const [deviceId, profile] of targets) {
+    for (const deviceId of devices.keys()) {
+      const profile = detectDeviceProfile(proc, title, deviceId);
       const transition = transitionDeviceState(deviceStates.get(deviceId), profile);
       if (!transition) continue;
       deviceStates.set(deviceId, transition.state);
@@ -654,12 +693,12 @@ function migrateLegacyProfileAssignments() {
   const firstDeviceId = devices.keys().next().value;
   if (!firstDeviceId || !appMap.some(entry => entry?.profile)) return false;
 
-  appMap = appMap.map(entry => {
+  appMap = appMap.map((entry, order) => {
     if (!entry?.profile) return entry;
     const { profile, assignments: existingAssignments, ...rule } = entry;
     const assignments = Array.isArray(existingAssignments) ? [...existingAssignments] : [];
     if (!assignments.some(assignment => assignment?.deviceId === firstDeviceId)) {
-      assignments.push({ deviceId: firstDeviceId, profile });
+      assignments.push({ deviceId: firstDeviceId, profile, order });
     }
     return { ...rule, assignments };
   });
@@ -701,29 +740,26 @@ function applySettings(settings) {
 
 // ─── Test detection with countdown ───────────────────────────────────────────
 // Gives the user time to focus the target app before capturing.
-function runTestDetection() {
+function runTestDetection(deviceId, context) {
   isTesting     = true;
   let remaining = TEST_DELAY_SECONDS;
-  sendToPI({ action: "detectionCountdown", seconds: remaining });
+  sendToPI({ action: "detectionCountdown", seconds: remaining }, context);
 
   const tick = setInterval(() => {
     remaining--;
     if (remaining > 0) {
-      sendToPI({ action: "detectionCountdown", seconds: remaining });
+      sendToPI({ action: "detectionCountdown", seconds: remaining }, context);
     } else {
       clearInterval(tick);
       getActiveWindowInfo().then(({ proc, title }) => {
         isTesting = false;  // countdown done; settingsOpen now prevents any switching
-        const match = detectProfileMatch(proc, title);
-        const profiles = Object.fromEntries(resolveProfileAssignments(match, devices.keys()));
-        const targets = [...new Set(Object.values(profiles).filter(Boolean))];
+        const profile = detectDeviceProfile(proc, title, deviceId);
         const result  = {
           proc,
           title,
-          profile: targets.length === 1 ? targets[0] : targets.length ? "(per-device assignments)" : "(no match)",
-          profiles,
+          profile: profile || "(no match)",
         };
-        sendToPI({ action: "detectionResult", ...result });
+        sendToPI({ action: "detectionResult", ...result }, context);
       });
     }
   }, 1000);
@@ -758,49 +794,54 @@ function connect() {
         migrateLegacyProfileAssignments();
         logMessage(`Device connected: ${msg.device}`);
         startPolling();
-        if (settingsOpen) sendDevicesToPI();
+        refreshInspectorConfiguration();
         break;
 
       case "deviceDidDisconnect":
         devices.delete(msg.device);
         deviceStates.delete(msg.device);
         if (devices.size === 0) stopPolling();
-        if (settingsOpen) sendDevicesToPI();
+        refreshInspectorConfiguration();
         break;
 
       case "deviceDidChange":
         if (devices.has(msg.device)) {
           devices.set(msg.device, msg.deviceInfo || {});
-          if (settingsOpen) sendDevicesToPI();
+          refreshInspectorConfiguration();
         }
         break;
 
       case "willAppear":
         actionContext = msg.context;
+        actionDevices.set(msg.context, msg.device);
         if (!devices.has(msg.device)) {
           devices.set(msg.device, {});
           deviceStates.set(msg.device, { lastProfile: null, pluginDepth: 0 });
         }
         migrateLegacyProfileAssignments();
         if (!pollTimer) startPolling();
-        if (settingsOpen) sendDevicesToPI();
+        refreshInspectorConfiguration();
         break;
 
       case "willDisappear":
+        actionDevices.delete(msg.context);
         break;
 
       case "propertyInspectorDidAppear":
+        actionContext = msg.context;
+        inspectorContext = msg.context;
+        inspectorDeviceId = msg.device || actionDevices.get(msg.context) || null;
         settingsOpen = true;
         builtInMap = loadBuiltInProfileMap();
         buildProfileDirMap();
         syncProfileTags(allTargets());
-        sendToPI({ action: "profilesList", profilesByDevice: getProfilesByDevice() });
-        sendToPI({ action: "profilesStatus", profiles: getProfilesStatus() });
-        sendDevicesToPI();
+        sendDeviceConfiguration(msg.context, inspectorDeviceId);
         break;
 
       case "propertyInspectorDidDisappear":
         settingsOpen = false;
+        inspectorContext = null;
+        inspectorDeviceId = null;
         stableProc   = '';  // reset stability so the first poll after closing re-evaluates cleanly
         stableCount  = 0;
         break;
@@ -810,23 +851,38 @@ function connect() {
         break;
 
       case "sendToPlugin":
-        if (msg.payload?.action === "saveSettings") {
-          applySettings({ ...globalSettings, ...msg.payload.settings });
+        if (msg.payload?.action === "saveDeviceSettings") {
+          const deviceId = msg.device || actionDevices.get(msg.context) || inspectorDeviceId;
+          if (!deviceId) break;
+          appMap = replaceDeviceRules(appMap, deviceId, msg.payload.appMap || []);
+          globalSettings = { ...globalSettings, appMap };
           setGlobalSettings(globalSettings);
           logMessage("Settings saved");
+          syncProfileTags(allTargets());
+          sendDeviceConfiguration(msg.context, deviceId);
         }
         if (msg.payload?.action === "testDetection") {
-          runTestDetection();
+          const deviceId = msg.device || actionDevices.get(msg.context) || inspectorDeviceId;
+          runTestDetection(deviceId, msg.context);
         }
-        if (msg.payload?.action === "getProfiles") {
-          sendToPI({ action: "profilesList", profilesByDevice: getProfilesByDevice() });
+        if (msg.payload?.action === "getDeviceConfiguration") {
+          const deviceId = msg.device || actionDevices.get(msg.context) || inspectorDeviceId;
+          sendDeviceConfiguration(msg.context, deviceId);
         }
         if (msg.payload?.action === "getProfilesStatus") {
-          sendToPI({ action: "profilesStatus", profiles: getProfilesStatus() });
+          const deviceId = msg.device || actionDevices.get(msg.context) || inspectorDeviceId;
+          sendToPI({
+            action: "profilesStatus",
+            profiles: getProfilesStatus().filter(profile => profile.deviceId === deviceId),
+          }, msg.context);
         }
         if (msg.payload?.action === "patchProfiles") {
           patchProfiles(msg.payload.names || [], msg.payload.force || false);
-          sendToPI({ action: "profilesStatus", profiles: getProfilesStatus() });
+          const deviceId = msg.device || actionDevices.get(msg.context) || inspectorDeviceId;
+          sendToPI({
+            action: "profilesStatus",
+            profiles: getProfilesStatus().filter(profile => profile.deviceId === deviceId),
+          }, msg.context);
         }
         break;
 

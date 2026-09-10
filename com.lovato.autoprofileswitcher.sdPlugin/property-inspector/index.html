@@ -58,11 +58,11 @@
 
     .row {
       display: grid;
-      grid-template-columns: 20px minmax(0, 1fr) 24px;
-      gap: 8px;
-      align-items: start;
-      margin-bottom: 10px;
-      padding: 9px 7px;
+      grid-template-columns: 20px minmax(90px, 1fr) minmax(90px, 1fr) minmax(120px, 1.2fr) 24px;
+      gap: 6px;
+      align-items: center;
+      margin-bottom: 6px;
+      padding: 6px;
       background: #252525;
       border: 1px solid #3d3d3d;
       border-radius: 5px;
@@ -70,20 +70,16 @@
     }
 
     .row input { margin-bottom: 0; }
-    .rule-body { min-width: 0; }
-    .rule-fields {
+    .col-label {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: 20px minmax(90px, 1fr) minmax(90px, 1fr) minmax(120px, 1.2fr) 24px;
       gap: 6px;
-      margin-bottom: 9px;
-    }
-    .rule-field label { margin-bottom: 3px; }
-    .rule-field input { width: 100%; }
-    .assignment-heading {
-      display: block;
+      padding: 0 6px;
       margin-bottom: 4px;
+    }
+    .col-label span {
       font-size: 10px;
-      color: #777;
+      color: #666;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
@@ -122,14 +118,12 @@
 
     .remove-btn:hover { border-color: #e05555; color: #e05555; }
 
-    .assignment-list { display: grid; gap: 4px; }
-    .assignment-row { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(140px, 1.3fr); gap: 8px; align-items: center; }
-    .assignment-label { font-size: 11px; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .assignment-row select { margin-bottom: 0; }
+    .row select { margin-bottom: 0; }
 
-    @media (max-width: 360px) {
-      .rule-fields { grid-template-columns: 1fr; }
-      .assignment-row { grid-template-columns: 1fr; gap: 2px; }
+    @media (max-width: 420px) {
+      .row, .col-label {
+        grid-template-columns: 20px minmax(75px, 1fr) minmax(75px, 1fr) minmax(95px, 1fr) 24px;
+      }
     }
 
     .btn {
@@ -258,11 +252,18 @@
     <b>Maps any Windows processes to StreamDeck profile names.</b><br>
     <li/>Process name works by partial match (e.g. "teams" matches "ms-teams.exe").
     <li/>Optionally add a window title match for finer control (e.g. "PowerShell" matches "Windows PowerShell").
-    <li/>Assign a profile explicitly to each connected Stream Deck.
+    <li/>This action configures only the Stream Deck where it is placed.
   </p>
 
   <br>
 
+  <div class="col-label">
+    <span></span>
+    <span>Process name</span>
+    <span>Title match</span>
+    <span>Profile</span>
+    <span></span>
+  </div>
   <div id="entries"></div>
 
   <button class="btn" onclick="addRow()">Add new entry</button>
@@ -302,8 +303,8 @@
   // ── StreamDeck Property Inspector SDK connection ──────────────────────────
   let sdConnection      = null;
   let actionContext      = null;
-  let profilesByDevice   = {};
-  let knownDevices       = [];
+  let currentDevice      = null;
+  let knownProfiles      = [];
   let lastDetection      = null;
   let profilesStatusData = [];
   let pendingPatch       = false;
@@ -320,22 +321,15 @@
 
     sdConnection.onopen = () => {
       sdConnection.send(JSON.stringify({ event: registerEvent, uuid }));
-      sdConnection.send(JSON.stringify({ event: "getGlobalSettings", context: uuid }));
+      sdConnection.send(JSON.stringify({
+        event: "sendToPlugin", context: uuid,
+        action: "com.lovato.autoprofileswitcher.monitor",
+        payload: { action: "getDeviceConfiguration" },
+      }));
     };
 
     sdConnection.onmessage = (evt) => {
       const msg = JSON.parse(evt.data);
-
-      if (msg.event === "didReceiveGlobalSettings") {
-        const s = msg.payload?.settings || {};
-        renderRows(Array.isArray(s.appMap) && s.appMap.length ? s.appMap : DEFAULT_MAP);
-        // Request profiles list to populate the dropdowns
-        sdConnection.send(JSON.stringify({
-          event: "sendToPlugin", context: uuid,
-          action: "com.lovato.autoprofileswitcher.monitor",
-          payload: { action: "getProfiles" },
-        }));
-      }
 
       if (msg.event === "sendToPropertyInspector") {
         const p   = msg.payload;
@@ -346,14 +340,11 @@
           el.innerHTML = `Switch to your app — capturing in <strong style="color:#fff">${p.seconds}s</strong>`;
         }
 
-        if (p?.action === "profilesList") {
-          profilesByDevice = p.profilesByDevice || {};
-          renderRows(collectRows());
-        }
-        if (p?.action === "devicesList") {
-          knownDevices = p.devices || [];
-          renderRows(collectRows());
-          if (profilesStatusData.length) renderProfilesStatus(profilesStatusData);
+        if (p?.action === "deviceConfiguration") {
+          currentDevice = p.device || null;
+          knownProfiles = p.profiles || [];
+          renderRows(Array.isArray(p.appMap) ? p.appMap : DEFAULT_MAP);
+          renderProfilesStatus(p.profilesStatus || []);
         }
         if (p?.action === "profilesStatus")  {
           if (pendingPatch) {
@@ -369,30 +360,26 @@
   };
 
   // ── Row rendering ────────────────────────────────────────────────────────
-  function buildProfileSelect(current, profiles, className = "profile-input") {
+  function buildProfileSelect(current, className = "profile-input") {
     const sel = document.createElement("select");
     sel.className = className;
     sel.style.marginBottom = "0";
     const blank = document.createElement("option");
     blank.value = ""; blank.textContent = "— select profile —";
     sel.appendChild(blank);
-    [...profiles].sort(alphabetical).forEach(name => {
+    [...knownProfiles].sort(alphabetical).forEach(name => {
       const opt = document.createElement("option");
       opt.value = name; opt.textContent = name;
       if (name === current) opt.selected = true;
       sel.appendChild(opt);
     });
-    if (current && !profiles.includes(current)) {
+    if (current && !knownProfiles.includes(current)) {
       const opt = document.createElement("option");
       opt.value = current; opt.textContent = current;
       opt.selected = true;
       sel.insertBefore(opt, sel.children[1]);
     }
     return sel;
-  }
-
-  function profilesForDevice(deviceId) {
-    return profilesByDevice[deviceId] || [];
   }
 
   function renderRows(map) {
@@ -402,7 +389,7 @@
   }
 
   function addRow(entry = {}) {
-    const { match = "", titleMatch = "", profile = "", assignments = [] } = entry;
+    const { match = "", titleMatch = "", profile = "" } = entry;
     const container = document.getElementById("entries");
     const row = document.createElement("div");
     row.className = "row";
@@ -413,82 +400,21 @@
     grip.textContent = "⠿";
     row.appendChild(grip);
 
-    const body = document.createElement("div");
-    body.className = "rule-body";
-    const fields = document.createElement("div");
-    fields.className = "rule-fields";
-    const addField = (labelText, placeholder, value, className) => {
-      const field = document.createElement("div");
-      field.className = "rule-field";
-      const label = document.createElement("label");
-      label.textContent = labelText;
-      const input = document.createElement("input");
-      input.type = "text";
-      input.placeholder = placeholder;
-      input.value = value;
-      input.className = className;
-      field.append(label, input);
-      fields.appendChild(field);
-    };
-    addField("Process name", "e.g. ms-teams", match, "match-input");
-    addField("Title match (optional)", "e.g. PowerShell", titleMatch, "title-input");
-    body.appendChild(fields);
+    const processInput = document.createElement("input");
+    processInput.type = "text";
+    processInput.placeholder = "e.g. ms-teams";
+    processInput.value = match;
+    processInput.className = "match-input";
+    row.appendChild(processInput);
 
-    const assignmentHeading = document.createElement("span");
-    assignmentHeading.className = "assignment-heading";
-    assignmentHeading.textContent = "Profile assignments";
-    body.appendChild(assignmentHeading);
-    const assignmentList = document.createElement("div");
-    assignmentList.className = "assignment-list";
+    const titleInput = document.createElement("input");
+    titleInput.type = "text";
+    titleInput.placeholder = "optional";
+    titleInput.value = titleMatch;
+    titleInput.className = "title-input";
+    row.appendChild(titleInput);
 
-    const byDevice = new Map(assignments
-      .filter(a => a?.deviceId)
-      .map(a => [a.deviceId, a.profile || ""]));
-    const displayedDevices = [...knownDevices];
-    displayedDevices.sort((a, b) => alphabetical(a.name, b.name));
-    displayedDevices.forEach(device => {
-      const assignment = document.createElement("div");
-      assignment.className = "assignment-row";
-      const label = document.createElement("span");
-      label.className = "assignment-label";
-      const dimensions = device.size ? ` (${device.size.columns}×${device.size.rows})` : "";
-      label.textContent = `${device.name}${dimensions}`;
-      label.title = device.id;
-      assignment.appendChild(label);
-      const select = buildProfileSelect(
-        byDevice.get(device.id) || "",
-        profilesForDevice(device.id),
-        "profile-input assignment-profile-input",
-      );
-      select.dataset.deviceId = device.id;
-      assignment.appendChild(select);
-      assignmentList.appendChild(assignment);
-    });
-    byDevice.forEach((assignedProfile, deviceId) => {
-      if (displayedDevices.some(device => device.id === deviceId)) return;
-      const preserved = document.createElement("input");
-      preserved.type = "hidden";
-      preserved.className = "preserved-assignment-input";
-      preserved.dataset.deviceId = deviceId;
-      preserved.value = assignedProfile;
-      assignmentList.appendChild(preserved);
-    });
-    // A connected device normally triggers the plugin-side migration before
-    // this panel renders. Retain a legacy value if that has not happened yet,
-    // so opening and saving this panel can never erase it.
-    if (profile && displayedDevices.length === 0) {
-      const pending = document.createElement("div");
-      pending.className = "assignment-label";
-      pending.textContent = "Waiting for a Stream Deck connection to migrate this rule…";
-      const preservedProfile = document.createElement("input");
-      preservedProfile.type = "hidden";
-      preservedProfile.className = "default-profile-input";
-      preservedProfile.value = profile;
-      pending.appendChild(preservedProfile);
-      assignmentList.appendChild(pending);
-    }
-    body.appendChild(assignmentList);
-    row.appendChild(body);
+    row.appendChild(buildProfileSelect(profile));
     const btn = document.createElement("button");
     btn.className = "remove-btn";
     btn.textContent = "×";
@@ -556,20 +482,13 @@
         const entry = {
           match:   r.querySelector(".match-input").value.trim(),
         };
-        const legacyProfile = r.querySelector(".default-profile-input");
-        const profile = legacyProfile?.value.trim() || "";
+        const profile = r.querySelector(".profile-input").value.trim();
         if (profile) entry.profile = profile;
-        const assignments = Array.from(r.querySelectorAll(
-          ".assignment-profile-input, .preserved-assignment-input",
-        ))
-          .map(select => ({ deviceId: select.dataset.deviceId, profile: select.value.trim() }))
-          .filter(a => a.profile);
-        if (assignments.length) entry.assignments = assignments;
         const t = r.querySelector(".title-input").value.trim();
         if (t) entry.titleMatch = t;
         return entry;
       })
-      .filter(e => e.match && (e.profile || e.assignments?.length));
+      .filter(e => e.match && e.profile);
   }
 
   // ── Save ─────────────────────────────────────────────────────────────────
@@ -580,7 +499,7 @@
       event:   "sendToPlugin",
       context: actionContext,
       action:  "com.lovato.autoprofileswitcher.monitor",
-      payload: { action: "saveSettings", settings: { appMap } },
+      payload: { action: "saveDeviceSettings", appMap },
     }));
     const status = document.getElementById("status");
     status.textContent = "✓ Saved";
@@ -592,19 +511,12 @@
     lastDetection = r;
     const matched = r.profile && r.profile !== "(no match)";
     const profile = matched ? r.profile : "(no match)";
-    const deviceProfiles = Object.entries(r.profiles || {})
-      .map(([deviceId, target]) => {
-        const device = knownDevices.find(d => d.id === deviceId);
-        return `${device?.name || deviceId}: ${target || "(release)"}`;
-      })
-      .join("<br>");
     const el = document.getElementById("test-result");
     el.style.display = "block";
     el.innerHTML =
       `Process: <strong style="color:#fff">${r.proc || "(none)"}</strong><br>` +
       `Title:&nbsp;&nbsp; <strong style="color:#aad4f5">${r.title || "(none)"}</strong><br>` +
-      `Profile: <strong style="color:${matched ? "#7cb87c" : "#e07c7c"}">${profile}</strong>` +
-      (deviceProfiles ? `<br>Profiles:<br>${deviceProfiles}` : "");
+      `Profile: <strong style="color:${matched ? "#7cb87c" : "#e07c7c"}">${profile}</strong>`;
     document.getElementById("add-detection-btn").style.display =
       r.proc ? "inline-block" : "none";
   }
@@ -650,44 +562,24 @@
     const escapeHtml = value => String(value)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    const grouped = new Map();
-    profilesStatusData.forEach((profile, index) => {
-      const deviceId = profile.deviceId || "";
-      if (!grouped.has(deviceId)) grouped.set(deviceId, []);
-      grouped.get(deviceId).push({ profile, index });
-    });
-    const sections = [...grouped].map(([deviceId, entries]) => {
-      const device = knownDevices.find(item => item.id === deviceId);
-      return {
-        name: device?.name || `Disconnected device (${deviceId.slice(0, 8)}…)`,
-        entries,
-      };
-    }).sort((a, b) => alphabetical(a.name, b.name));
-
-    list.innerHTML = sections.map(section => {
-      const rows = section.entries
-        .sort((a, b) => alphabetical(a.profile.name, b.profile.name))
-        .map(({ profile: p, index }) => {
-          const info = STATUS_INFO[p.status] || { label: p.status, color: '#888' };
-          const canPatch = p.status === 'smart' || p.status === 'plain' || p.status === 'conflict';
-          const canForce = p.status === 'other';
-          const safeName = escapeHtml(p.name);
-          const actionBtn = canPatch
-            ? `<button class="profile-status-patch" data-patch-index="${index}">Patch</button>`
-            : canForce
-              ? `<button class="profile-status-force" data-force-index="${index}" title="Take over ownership from another plugin">Force</button>`
-              : '';
-          return `<div class="profile-status-row">
-            <span class="profile-status-name" title="${safeName}">${safeName}</span>
-            <span class="profile-status-badge" style="color:${info.color}">${info.label}</span>
-            ${actionBtn}
-          </div>`;
-        }).join('');
-      return `<div class="profile-device-section">
-        <div class="profile-device-name">${escapeHtml(section.name)}</div>
-        ${rows}
-      </div>`;
-    }).join('');
+    list.innerHTML = profilesStatusData
+      .sort((a, b) => alphabetical(a.name, b.name))
+      .map((p, index) => {
+        const info = STATUS_INFO[p.status] || { label: p.status, color: '#888' };
+        const canPatch = p.status === 'smart' || p.status === 'plain' || p.status === 'conflict';
+        const canForce = p.status === 'other';
+        const safeName = escapeHtml(p.name);
+        const actionBtn = canPatch
+          ? `<button class="profile-status-patch" data-patch-index="${index}">Patch</button>`
+          : canForce
+            ? `<button class="profile-status-force" data-force-index="${index}" title="Take over ownership from another plugin">Force</button>`
+            : '';
+        return `<div class="profile-status-row">
+          <span class="profile-status-name" title="${safeName}">${safeName}</span>
+          <span class="profile-status-badge" style="color:${info.color}">${info.label}</span>
+          ${actionBtn}
+        </div>`;
+      }).join('');
 
     const patchable = profilesStatusData.filter(p =>
       p.status === 'smart' || p.status === 'plain' || p.status === 'conflict'
