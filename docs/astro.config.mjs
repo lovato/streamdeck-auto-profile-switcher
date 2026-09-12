@@ -53,6 +53,7 @@ export default defineConfig({
 						{ label: 'MSIX / WindowsApps', slug: 'features/msix-apps' },
 						{ label: 'Window title matching', slug: 'features/title-matching' },
 						{ label: 'Hybrid Smart Profiles', slug: 'features/smart-profiles' },
+						{ label: 'Multiple Stream Decks', slug: 'features/multiple-devices' },
 					],
 				},
 				{
@@ -73,6 +74,7 @@ export default defineConfig({
 						{ label: 'Releases', slug: 'developer/releases' },
 					],
 				},
+				{ label: 'Release notes', slug: 'release-notes' },
 			],
 		}),
 	],

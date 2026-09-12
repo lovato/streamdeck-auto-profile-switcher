@@ -1,0 +1,33 @@
+---
+title: Release notes
+description: New features, improvements, and fixes in Auto Profile Switcher.
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+## 1.1.0
+
+### <Badge text="Feature" variant="tip" /> Per-device profile assignments
+
+- Assign a different target profile to each enabled Stream Deck.
+- Profile dropdowns show only profiles belonging to that device.
+- Device names come from the Stream Deck application and stay alphabetically sorted.
+- Existing single-profile rules migrate to the first detected Stream Deck.
+
+### <Badge text="Improvement" variant="note" /> Device lifecycle
+
+- Disabled devices are hidden without losing their assignments.
+- Re-enabled devices recover their saved assignments.
+- Forgetting a device removes its assignments and orphaned profile-patch tracking on the next plugin start.
+
+### <Badge text="Improvement" variant="note" /> Property inspector
+
+- Rules use a wider, stacked card layout.
+- Profile Status is grouped by Stream Deck.
+- Detection results are session-only and clear after adding a rule.
+- Pressing the action key opens this documentation site in the default browser.
+
+### <Badge text="Bug Fix" variant="danger" /> Reliability
+
+- Profile switching state and override depth are tracked independently per device.
+- Deployment now fails clearly when Stream Deck cannot be stopped instead of reporting a false restart.

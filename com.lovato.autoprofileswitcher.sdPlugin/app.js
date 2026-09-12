@@ -15,9 +15,19 @@
 
 const WebSocket = require("ws");
 const { spawn } = require("child_process");
+const crypto     = require("crypto");
 const fs         = require("fs");
 const path       = require("path");
-const { detectProfile: detectProfileFromMaps } = require("./lib/detect");
+const { Version: PLUGIN_VERSION } = require("./manifest.json");
+const {
+  findProfileMatch,
+} = require("./lib/detect");
+const { transitionDeviceState } = require("./lib/device-state");
+const {
+  getDeviceRules,
+  removeForgottenDeviceAssignments,
+  replaceDeviceRules,
+} = require("./lib/device-settings");
 
 // ─── StreamDeck connection args ───────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -26,20 +36,26 @@ const getArg = (flag) => { const i = args.indexOf(flag); return i !== -1 ? args[
 const PORT         = getArg("-port");
 const PLUGIN_UUID  = getArg("-pluginUUID");
 const REGISTER_EVT = getArg("-registerEvent");
+const STREAMDECK_INFO = (() => {
+  try { return JSON.parse(getArg("-info") || "{}"); } catch { return {}; }
+})();
 
 // ─── Configuration ────────────────────────────────────────────────────────────
 const POLL_INTERVAL_MS   = 150;
 const STABLE_POLLS       = 2;   // require 2 consecutive detections (~300ms) before switching
 const TEST_DELAY_SECONDS = 3;
+const WEBSITE_URL        = "https://lovato.github.io/streamdeck-auto-profile-switcher/";
 
 const DEFAULT_APP_MAP = [];
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let ws             = null;
-let deviceId       = null;
 let actionContext  = null;
-let lastProfile    = null;
-let pluginDepth    = 0;   // consecutive plugin-managed profile switches since last unmonitored app
+let inspectorContext = null;
+let inspectorDeviceId = null;
+const actionDevices = new Map(); // action context → deviceId
+const devices      = new Map(); // deviceId → deviceInfo
+const deviceStates = new Map(); // deviceId → { lastProfile, pluginDepth }
 let appMap         = DEFAULT_APP_MAP;
 let pollTimer      = null;
 let isPollRunning  = false;
@@ -162,14 +178,74 @@ function readManifest(dir) {
   } catch { return null; }
 }
 
-function getProfileNames() {
+function getProfileGroups() {
+  const groups = new Map();
+  for (const dir of fs.readdirSync(V3_DIR).filter(d => d.endsWith('.sdProfile'))) {
+    const manifest = readManifest(dir);
+    const profileDeviceId = manifest?.Device?.UUID;
+    if (!manifest?.Name || !profileDeviceId) continue;
+    if (!groups.has(profileDeviceId)) groups.set(profileDeviceId, []);
+    groups.get(profileDeviceId).push(manifest);
+  }
+  return groups;
+}
+
+function resolveDeviceProfileGroups(groups) {
+  const deviceToGroup = new Map();
+  const claimedGroups = new Set();
+  const knownDeviceIds = new Set(
+    (STREAMDECK_INFO.devices || []).map(device => device?.id).filter(Boolean),
+  );
+
+  // Stream Deck derives the SDK's opaque device ID by MD5-hashing the
+  // ProfilesV3 Device.UUID. This gives us a deterministic mapping even for a
+  // newly added deck that has no saved rule assignments yet.
+  for (const profileDeviceId of groups.keys()) {
+    const sdkDeviceId = crypto.createHash('md5').update(profileDeviceId).digest('hex');
+    if (!devices.has(sdkDeviceId)) continue;
+    deviceToGroup.set(sdkDeviceId, profileDeviceId);
+    claimedGroups.add(profileDeviceId);
+  }
+
+  // Saved assignments bridge the two unrelated identifier systems: the
+  // assignment contains the SDK's opaque device ID and a profile name, while
+  // ProfilesV3 tells us which hardware profile group owns that profile. Keep
+  // this as a fallback for device types that do not use the physical UUID hash.
+  for (const entry of appMap) {
+    for (const assignment of entry.assignments || []) {
+      if (!knownDeviceIds.has(assignment?.deviceId) || !assignment.profile) continue;
+      if (deviceToGroup.has(assignment.deviceId)) continue;
+      const matches = [...groups].filter(([, manifests]) =>
+        manifests.some(manifest => manifest.Name === assignment.profile));
+      if (matches.length !== 1) continue;
+      const [profileDeviceId] = matches[0];
+      deviceToGroup.set(assignment.deviceId, profileDeviceId);
+      claimedGroups.add(profileDeviceId);
+    }
+  }
+
+  // Once explicit assignments identify the otherwise ambiguous physical
+  // decks, pair any remaining devices/groups when the relationship is unique
+  // (for example, one Stream Deck Mobile and one mobile profile group).
+  const unmatchedDevices = [...devices.keys()].filter(id => !deviceToGroup.has(id));
+  const unmatchedGroups = [...groups.keys()].filter(id => !claimedGroups.has(id));
+  if (unmatchedDevices.length === 1 && unmatchedGroups.length === 1) {
+    deviceToGroup.set(unmatchedDevices[0], unmatchedGroups[0]);
+  }
+  return deviceToGroup;
+}
+
+function getProfilesByDevice() {
   try {
-    const names = fs.readdirSync(V3_DIR)
-      .filter(d => d.endsWith('.sdProfile'))
-      .map(d => readManifest(d)?.Name || null)
-      .filter(Boolean);
-    return [...new Set(names)].sort((a, b) => a.localeCompare(b));
-  } catch { return []; }
+    const groups = getProfileGroups();
+    const deviceToGroup = resolveDeviceProfileGroups(groups);
+    const profilesByDevice = {};
+    for (const deviceId of devices.keys()) {
+      const names = (groups.get(deviceToGroup.get(deviceId)) || []).map(manifest => manifest.Name);
+      profilesByDevice[deviceId] = [...new Set(names)].sort((a, b) => a.localeCompare(b));
+    }
+    return profilesByDevice;
+  } catch { return {}; }
 }
 
 // ─── Built-in Smart Profile mirror ───────────────────────────────────────────
@@ -242,7 +318,10 @@ function loadBuiltInProfileMap() {
 
 function allTargets() {
   return [...new Set([
-    ...appMap.map(e => e.profile).filter(Boolean),
+    ...appMap.flatMap(e => [
+      e.profile,
+      ...(e.assignments || []).map(a => a?.profile),
+    ]).filter(Boolean),
     ...Object.values(builtInMap),
     ...manualPatches,
   ])];
@@ -269,6 +348,19 @@ function saveManualPatches() {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(MANUAL_PATCH_FILE, JSON.stringify([...manualPatches]), { encoding: 'utf8' });
   } catch { /* non-fatal */ }
+}
+
+function removeMissingManualPatches() {
+  const existingProfiles = new Set(
+    [...getProfileGroups().values()].flat().map(manifest => manifest.Name),
+  );
+  const retained = [...manualPatches].filter(name => existingProfiles.has(name));
+  const removed = manualPatches.size - retained.length;
+  if (removed) {
+    manualPatches = new Set(retained);
+    saveManualPatches();
+  }
+  return removed;
 }
 
 // Persistent map of profileName → AppIdentifier path, written whenever we tag
@@ -340,12 +432,17 @@ function syncProfileTags(targets) {
 // Returns all profiles with their ownership/tagging status so the PI can show
 // which profiles will work with switchToProfile and which need patching.
 function getProfilesStatus() {
-  const byName = new Map(); // name → best status (deduplicate)
+  const byDeviceAndName = new Map();
   const STATUS_PRIORITY = { ready: 0, conflict: 1, smart: 2, plain: 3, other: 4, default: 5 };
   try {
-    for (const dir of fs.readdirSync(V3_DIR).filter(d => d.endsWith('.sdProfile'))) {
-      const m = readManifest(dir);
-      if (!m?.Name) continue;
+    const groups = getProfileGroups();
+    const groupToDevice = new Map(
+      [...resolveDeviceProfileGroups(groups)].map(([deviceId, groupId]) => [groupId, deviceId]),
+    );
+    for (const [groupId, manifests] of groups) {
+      const deviceId = groupToDevice.get(groupId);
+      if (!deviceId || !devices.has(deviceId)) continue;
+      for (const m of manifests) {
       let status;
       if (m.InstalledByPluginUUID === PLUGIN_ID) {
         status = m.AppIdentifier ? 'conflict' : 'ready';
@@ -358,13 +455,19 @@ function getProfilesStatus() {
       } else {
         status = 'plain';
       }
-      const existing = byName.get(m.Name);
+      const key = `${groupId}\0${m.Name}`;
+      const existing = byDeviceAndName.get(key);
       if (!existing || (STATUS_PRIORITY[status] ?? 99) < (STATUS_PRIORITY[existing.status] ?? 99)) {
-        byName.set(m.Name, { name: m.Name, status });
+          byDeviceAndName.set(key, {
+            name: m.Name,
+            status,
+            deviceId,
+          });
+        }
       }
     }
   } catch { /* non-fatal */ }
-  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return [...byDeviceAndName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // Tags specific profiles by name, regardless of whether they're in allTargets().
@@ -397,8 +500,9 @@ function patchProfiles(names, force = false) {
 }
 
 // ─── Profile detection ────────────────────────────────────────────────────────
-function detectProfile(proc, title = '') {
-  return detectProfileFromMaps(proc, title, appMap, builtInMap);
+function detectDeviceProfile(proc, title, deviceId) {
+  const match = findProfileMatch(proc, title, getDeviceRules(appMap, deviceId), builtInMap);
+  return match?.type === 'builtIn' ? match.profile : match?.entry?.profile || null;
 }
 
 // ─── Profile directory index ──────────────────────────────────────────────────
@@ -448,8 +552,7 @@ function send(payload) {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
 }
 
-function switchToProfile(profileName) {
-  if (!deviceId) return;
+function switchToProfile(deviceId, profileName) {
   if (profileName) ensureProfileTagged(profileName);
   send({ event: "switchToProfile", context: PLUGIN_UUID, device: deviceId, payload: { profile: profileName } });
 }
@@ -466,13 +569,50 @@ function logMessage(msg) {
   send({ event: "logMessage", context: actionContext || PLUGIN_UUID, payload: { message: `[WindowsApps Switcher] ${msg}` } });
 }
 
-function sendToPI(payload) {
+function sendToPI(payload, context = actionContext) {
+  if (!context) return;
   send({
     event:   "sendToPropertyInspector",
-    context: actionContext,
+    context,
     action:  "com.lovato.autoprofileswitcher.monitor",
     payload,
   });
+}
+
+function sendDeviceConfiguration(context, deviceId) {
+  if (!deviceId) {
+    sendToPI({ action: "deviceConfiguration", error: "Unable to identify this Stream Deck." }, context);
+    return;
+  }
+  const profilesByDevice = getProfilesByDevice();
+  sendToPI({
+    action: "deviceConfiguration",
+    version: PLUGIN_VERSION,
+    device: getConnectedDevices().find(device => device.id === deviceId) || { id: deviceId },
+    appMap: getDeviceRules(appMap, deviceId),
+    profiles: profilesByDevice[deviceId] || [],
+    profilesStatus: getProfilesStatus().filter(profile => profile.deviceId === deviceId),
+  }, context);
+}
+
+function getConnectedDevices() {
+  return [...devices]
+    .map(([id, info = {}]) => ({
+      id,
+      name: info.name || "Unnamed Stream Deck",
+      type: info.type,
+      size: info.size,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    }));
+}
+
+function refreshInspectorConfiguration() {
+  if (settingsOpen && inspectorContext && inspectorDeviceId) {
+    sendDeviceConfiguration(inspectorContext, inspectorDeviceId);
+  }
 }
 
 // ─── Poll loop ────────────────────────────────────────────────────────────────
@@ -496,25 +636,30 @@ async function pollOnce() {
     }
     if (stableCount < STABLE_POLLS) return;
 
-    const profile = detectProfile(proc, title);
-    if (profile !== lastProfile) {
-      if (profile) {
-        const isFirst = (lastProfile === null);
-        pluginDepth = isFirst ? 1 : pluginDepth + 1;
-        lastProfile = profile;
-        if (isFirst) {
-          switchToProfile('');
-          await new Promise(r => setTimeout(r, 50));
-        }
-        logMessage(`Detected "${proc}" → switching to profile "${profile}"`);
-        switchToProfile(profile);
+    const transitions = [];
+
+    for (const deviceId of devices.keys()) {
+      const profile = detectDeviceProfile(proc, title, deviceId);
+      const transition = transitionDeviceState(deviceStates.get(deviceId), profile);
+      if (!transition) continue;
+      deviceStates.set(deviceId, transition.state);
+      transitions.push({ deviceId, profile, ...transition });
+    }
+
+    // The release and switch must be separated by 50 ms on every device that
+    // starts a plugin-managed stack. Fan out each phase so all devices change
+    // together instead of serializing the delay per device.
+    const firstSwitches = transitions.filter(t => t.preRelease);
+    for (const { deviceId } of firstSwitches) switchToProfile(deviceId, '');
+    if (firstSwitches.length) await new Promise(r => setTimeout(r, 50));
+
+    for (const { deviceId, profile, switchProfile, releaseCount } of transitions) {
+      if (switchProfile) {
+        logMessage(`Detected "${proc}" → device ${deviceId} profile "${profile}"`);
+        switchToProfile(deviceId, switchProfile);
       } else {
-        // Call switchToProfile('') once per depth level so StreamDeck peels
-        // back through any stacked plugin profiles and lands on Default.
-        const releases = Math.max(pluginDepth, 1);
-        pluginDepth = 0;
-        lastProfile = null;
-        for (let i = 0; i < releases; i++) switchToProfile('');
+        // Each empty switch pops one level from this specific device's stack.
+        for (let i = 0; i < releaseCount; i++) switchToProfile(deviceId, '');
       }
     }
   } finally {
@@ -542,12 +687,53 @@ function stopPolling() {
   if (resyncTimer){ clearInterval(resyncTimer); resyncTimer = null; }
 }
 
+// Older versions stored one `profile` per rule, which broadcast to every
+// device. Per-device rules deliberately have no fallback: migrate each legacy
+// target to the first Stream Deck we detect and persist it before rendering the
+// new editor. Existing explicit assignments remain unchanged.
+function migrateLegacyProfileAssignments() {
+  const firstDeviceId = devices.keys().next().value;
+  if (!firstDeviceId || !appMap.some(entry => entry?.profile)) return false;
+
+  appMap = appMap.map((entry, order) => {
+    if (!entry?.profile) return entry;
+    const { profile, assignments: existingAssignments, ...rule } = entry;
+    const assignments = Array.isArray(existingAssignments) ? [...existingAssignments] : [];
+    if (!assignments.some(assignment => assignment?.deviceId === firstDeviceId)) {
+      assignments.push({ deviceId: firstDeviceId, profile, order });
+    }
+    return { ...rule, assignments };
+  });
+  globalSettings = { ...globalSettings, appMap };
+  setGlobalSettings(globalSettings);
+  logMessage(`Migrated legacy profile rules to device ${firstDeviceId}`);
+  return true;
+}
+
 // ─── Apply settings from global store ────────────────────────────────────────
 function applySettings(settings) {
-  globalSettings = settings || {};
+  globalSettings = { ...(settings || {}) };
+  const forgotten = removeForgottenDeviceAssignments(
+    globalSettings,
+    (STREAMDECK_INFO.devices || []).map(device => device?.id),
+  );
+  globalSettings = forgotten.settings;
+  if (Object.hasOwn(globalSettings, "lastDetection")) {
+    delete globalSettings.lastDetection;
+    setGlobalSettings(globalSettings);
+  } else if (forgotten.removed) {
+    setGlobalSettings(globalSettings);
+  }
   appMap = (Array.isArray(globalSettings.appMap) && globalSettings.appMap.length > 0)
     ? globalSettings.appMap
     : DEFAULT_APP_MAP;
+  migrateLegacyProfileAssignments();
+  const removedPatches = removeMissingManualPatches();
+  if (forgotten.removed || removedPatches) {
+    logMessage(
+      `Removed ${forgotten.removed} assignment(s) and ${removedPatches} stale patch(es) for forgotten devices`,
+    );
+  }
   builtInMap = loadBuiltInProfileMap();
   buildProfileDirMap();
   if (appMap.length > 0) logMessage(`Loaded app map: ${appMap.length} custom rules, ${Object.keys(builtInMap).length} built-in Smart Profile apps`);
@@ -556,24 +742,26 @@ function applySettings(settings) {
 
 // ─── Test detection with countdown ───────────────────────────────────────────
 // Gives the user time to focus the target app before capturing.
-function runTestDetection() {
+function runTestDetection(deviceId, context) {
   isTesting     = true;
   let remaining = TEST_DELAY_SECONDS;
-  sendToPI({ action: "detectionCountdown", seconds: remaining });
+  sendToPI({ action: "detectionCountdown", seconds: remaining }, context);
 
   const tick = setInterval(() => {
     remaining--;
     if (remaining > 0) {
-      sendToPI({ action: "detectionCountdown", seconds: remaining });
+      sendToPI({ action: "detectionCountdown", seconds: remaining }, context);
     } else {
       clearInterval(tick);
       getActiveWindowInfo().then(({ proc, title }) => {
         isTesting = false;  // countdown done; settingsOpen now prevents any switching
-        const profile = detectProfile(proc, title);
-        const result  = { proc, title, profile: profile || "(no match)" };
-        globalSettings.lastDetection = result;
-        setGlobalSettings(globalSettings);
-        sendToPI({ action: "detectionResult", ...result });
+        const profile = detectDeviceProfile(proc, title, deviceId);
+        const result  = {
+          proc,
+          title,
+          profile: profile || "(no match)",
+        };
+        sendToPI({ action: "detectionResult", ...result }, context);
       });
     }
   }, 1000);
@@ -598,34 +786,64 @@ function connect() {
     try { msg = JSON.parse(raw); } catch { return; }
 
     switch (msg.event) {
+      case "keyUp":
+        send({ event: "openUrl", payload: { url: WEBSITE_URL } });
+        break;
+
       case "deviceDidConnect":
-        if (!deviceId) { deviceId = msg.device; logMessage(`Device connected: ${deviceId}`); startPolling(); }
+        devices.set(msg.device, msg.deviceInfo || {});
+        if (!deviceStates.has(msg.device)) deviceStates.set(msg.device, { lastProfile: null, pluginDepth: 0 });
+        migrateLegacyProfileAssignments();
+        logMessage(`Device connected: ${msg.device}`);
+        startPolling();
+        refreshInspectorConfiguration();
         break;
 
       case "deviceDidDisconnect":
-        if (msg.device === deviceId) { deviceId = null; stopPolling(); }
+        devices.delete(msg.device);
+        deviceStates.delete(msg.device);
+        if (devices.size === 0) stopPolling();
+        refreshInspectorConfiguration();
+        break;
+
+      case "deviceDidChange":
+        if (devices.has(msg.device)) {
+          devices.set(msg.device, msg.deviceInfo || {});
+          refreshInspectorConfiguration();
+        }
         break;
 
       case "willAppear":
         actionContext = msg.context;
-        if (!deviceId) deviceId = msg.device;
+        actionDevices.set(msg.context, msg.device);
+        if (!devices.has(msg.device)) {
+          devices.set(msg.device, {});
+          deviceStates.set(msg.device, { lastProfile: null, pluginDepth: 0 });
+        }
+        migrateLegacyProfileAssignments();
         if (!pollTimer) startPolling();
+        refreshInspectorConfiguration();
         break;
 
       case "willDisappear":
+        actionDevices.delete(msg.context);
         break;
 
       case "propertyInspectorDidAppear":
+        actionContext = msg.context;
+        inspectorContext = msg.context;
+        inspectorDeviceId = msg.device || actionDevices.get(msg.context) || null;
         settingsOpen = true;
         builtInMap = loadBuiltInProfileMap();
         buildProfileDirMap();
         syncProfileTags(allTargets());
-        sendToPI({ action: "profilesList", profiles: getProfileNames() });
-        sendToPI({ action: "profilesStatus", profiles: getProfilesStatus() });
+        sendDeviceConfiguration(msg.context, inspectorDeviceId);
         break;
 
       case "propertyInspectorDidDisappear":
         settingsOpen = false;
+        inspectorContext = null;
+        inspectorDeviceId = null;
         stableProc   = '';  // reset stability so the first poll after closing re-evaluates cleanly
         stableCount  = 0;
         break;
@@ -635,29 +853,46 @@ function connect() {
         break;
 
       case "sendToPlugin":
-        if (msg.payload?.action === "saveSettings") {
-          applySettings(msg.payload.settings);
+        if (msg.payload?.action === "saveDeviceSettings") {
+          const deviceId = msg.device || actionDevices.get(msg.context) || inspectorDeviceId;
+          if (!deviceId) break;
+          appMap = replaceDeviceRules(appMap, deviceId, msg.payload.appMap || []);
+          globalSettings = { ...globalSettings, appMap };
           setGlobalSettings(globalSettings);
           logMessage("Settings saved");
+          syncProfileTags(allTargets());
+          sendDeviceConfiguration(msg.context, deviceId);
         }
         if (msg.payload?.action === "testDetection") {
-          runTestDetection();
+          const deviceId = msg.device || actionDevices.get(msg.context) || inspectorDeviceId;
+          runTestDetection(deviceId, msg.context);
         }
-        if (msg.payload?.action === "getProfiles") {
-          sendToPI({ action: "profilesList", profiles: getProfileNames() });
+        if (msg.payload?.action === "getDeviceConfiguration") {
+          const deviceId = msg.device || actionDevices.get(msg.context) || inspectorDeviceId;
+          sendDeviceConfiguration(msg.context, deviceId);
         }
         if (msg.payload?.action === "getProfilesStatus") {
-          sendToPI({ action: "profilesStatus", profiles: getProfilesStatus() });
+          const deviceId = msg.device || actionDevices.get(msg.context) || inspectorDeviceId;
+          sendToPI({
+            action: "profilesStatus",
+            profiles: getProfilesStatus().filter(profile => profile.deviceId === deviceId),
+          }, msg.context);
         }
         if (msg.payload?.action === "patchProfiles") {
           patchProfiles(msg.payload.names || [], msg.payload.force || false);
-          sendToPI({ action: "profilesStatus", profiles: getProfilesStatus() });
+          const deviceId = msg.device || actionDevices.get(msg.context) || inspectorDeviceId;
+          sendToPI({
+            action: "profilesStatus",
+            profiles: getProfilesStatus().filter(profile => profile.deviceId === deviceId),
+          }, msg.context);
         }
         break;
 
       case "applicationDidLaunch":
       case "applicationDidTerminate":
-        lastProfile = null;
+        for (const [deviceId, state] of deviceStates) {
+          deviceStates.set(deviceId, { ...state, lastProfile: null, pluginDepth: 0 });
+        }
         break;
     }
   });

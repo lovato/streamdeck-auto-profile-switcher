@@ -1,0 +1,58 @@
+name: Development release
+
+on:
+  push:
+    branches: [dev]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: development-release
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: com.lovato.autoprofileswitcher.sdPlugin/package-lock.json
+
+      - name: Install dependencies
+        working-directory: com.lovato.autoprofileswitcher.sdPlugin
+        run: npm ci
+
+      - name: Lint, test, and build
+        working-directory: com.lovato.autoprofileswitcher.sdPlugin
+        run: |
+          npm run check
+          npx @vercel/ncc build app.js --out build/
+
+      - name: Package development build
+        id: package
+        working-directory: com.lovato.autoprofileswitcher.sdPlugin
+        run: |
+          short_sha=$(git rev-parse --short HEAD)
+          mkdir -p ../dist
+          npx streamdeck pack . -o ../dist/ --force --no-update-check
+          zip -j "../dist/com.lovato.autoprofileswitcher.${short_sha}.zip" \
+            ../dist/com.lovato.autoprofileswitcher.streamDeckPlugin
+          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Replace rolling development release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHORT_SHA: ${{ steps.package.outputs.short_sha }}
+        run: |
+          gh release delete dev-latest --cleanup-tag --yes 2>/dev/null || true
+          gh release create dev-latest dist/* \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "Development Build" \
+            --notes "Automated development build from \`dev\` at commit \`${SHORT_SHA}\`. This build may be unstable."

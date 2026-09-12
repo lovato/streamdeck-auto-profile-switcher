@@ -255,8 +255,11 @@ know how to run it.
   corrects the "previous" pointer.
 - **UWP/MSIX process hosting**: some UWP apps report as `ApplicationFrameHost`.
   Use "Test Detection" in the PI to find the actual process name.
-- **Multiple devices**: the plugin uses `deviceId` from the first
-  `deviceDidConnect` event. Profiles are matched by `PreconfiguredName` and
-  routed by the `device` field in `switchToProfile`.
+- **Multiple devices**: the plugin tracks every connected `deviceId` and keeps
+  the profile stack state independently per device. Rules may broadcast a
+  legacy `profile` to all devices or use `assignments` to select a different
+  profile for each device. Built-in Smart Profile mirrors broadcast to all
+  connected devices. ProfilesV3 manifests are still indexed globally by profile
+  name, so per-device targets should use distinct profile names.
 - **Bundled build required**: raw `node_modules/` (21MB+) causes silent install
   failure. Must use `ncc` to create `build/index.js` (157KB bundled).
