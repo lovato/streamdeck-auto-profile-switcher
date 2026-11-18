@@ -27,6 +27,8 @@ Plugin connects via WebSocket
               └─ No match → switchToProfile(device, "")  (release to built-in)
 ```
 
+Process rules match the reported process name as a case-insensitive substring. Windows reports `winword`, not `WINWORD.EXE`, so a trailing `.exe` on a rule is ignored.
+
 ## Stability
 
 A process must appear in **two consecutive polls** (~300 ms) before switching. This avoids false triggers during rapid alt-tab.

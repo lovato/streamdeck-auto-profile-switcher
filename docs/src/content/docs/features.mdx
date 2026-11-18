@@ -5,7 +5,7 @@ description: What Auto Profile Switcher adds on top of built-in Smart Profiles.
 
 ## MSIX / WindowsApps detection
 
-Switch when Teams, WhatsApp, Windows Terminal, or any MSIX-packaged app is focused. Detection uses `GetForegroundWindow` → process name — stable across app updates.
+Switch when Teams, WhatsApp, Windows Terminal, or any MSIX-packaged app is focused. Detection uses `GetForegroundWindow` → process name — stable across app updates. Rules use that name without `.exe`; a trailing `.exe` on a saved rule is ignored.
 
 ## Window title matching
 

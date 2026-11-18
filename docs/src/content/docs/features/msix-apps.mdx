@@ -15,7 +15,7 @@ That path changes when Microsoft updates the package. Elgato [documents](https:/
 
 ## The fix
 
-Auto Profile Switcher asks Windows which window is in the foreground, resolves its process ID, and reads the **process name** — the same stable identifier you see in Task Manager.
+Auto Profile Switcher asks Windows which window is in the foreground, resolves its process ID, and reads the **process name** without a `.exe` suffix — the same name **Test detection** shows (`winword`, not `WINWORD.EXE`).
 
 A single persistent PowerShell process handles the Win32 calls so polling every 150 ms does not spawn a new shell each tick.
 

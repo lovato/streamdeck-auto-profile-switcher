@@ -28,5 +28,6 @@ Add the specific rules first; use a catch-all process rule last.
 ## Tips
 
 - Matching is **case-insensitive** and uses **substring** checks (`includes`).
+- The process match is the name **without** `.exe`. A trailing `.exe` is ignored, so `WINWORD.EXE` matches `winword`.
 - Use **Test detection** to copy exact title text from the target window.
 - Click **+ Add to app list** to pre-fill a rule from a detection result.
