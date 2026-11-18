@@ -5,6 +5,14 @@ description: New features, improvements, and fixes in Auto Profile Switcher.
 
 import { Badge } from '@astrojs/starlight/components';
 
+## 1.2.0
+
+### <Badge text="Bug Fix" variant="danger" /> Process rules with `.exe`
+
+- A process rule ignores a trailing `.exe`, so `WINWORD.EXE` matches the name Windows reports (`winword`). Rules already saved start matching without a re-save.
+- Saving a rule removes a trailing `.exe` from the process field.
+- The property inspector no longer describes the stored process name as including `.exe`.
+
 ## 1.1.0
 
 ### <Badge text="Feature" variant="tip" /> Per-device profile assignments

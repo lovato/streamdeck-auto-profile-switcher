@@ -12,6 +12,8 @@ description: Identify process names and window titles for new rules.
 3. You have **3 seconds** to focus the target application.
 4. Results stay visible: **process name**, **window title**, and matched profile (if any).
 
+The process name has no `.exe` suffix (`winword`, not `WINWORD.EXE`). Use that name in a rule. Typing the name with `.exe` still matches, and saving the rule removes the suffix.
+
 ## While testing
 
 - Auto-switching is **disabled** while the property inspector is open — you will not lose the panel mid-configuration.

@@ -180,7 +180,7 @@ streamdeck-windowsapps-plugin/
 
 ## Adding rules for other apps
 
-Run **Test detection**, focus the target app, and the process name and window title are shown. Click **+ Add to app list**, adjust if needed, and save.
+Run **Test detection**, focus the target app, and the process name and window title are shown. The process name has no `.exe` (`winword`, not `WINWORD.EXE`). A trailing `.exe` on a rule is ignored. Click **+ Add to app list**, adjust if needed, and save.
 
 For apps not visible in the test (background services, etc.), use PowerShell directly:
 
