@@ -4,6 +4,11 @@
 /***/ 361:
 /***/ ((module) => {
 
+function ruleProcessName(match) {
+  if (typeof match !== 'string') return '';
+  return match.trim().toLowerCase().replace(/\.exe$/, '');
+}
+
 /**
  * Finds the highest-priority custom rule, or the built-in Smart Profile fallback.
  * Title-specific rules always win over process-only rules.
@@ -12,13 +17,15 @@ function findProfileMatch(proc, title = '', appMap = [], builtInMap = {}) {
   const lTitle = title.toLowerCase();
   for (const entry of appMap) {
     if (!entry.titleMatch) continue;
-    if (proc.includes(entry.match.toLowerCase()) && lTitle.includes(entry.titleMatch.toLowerCase())) {
+    const rule = ruleProcessName(entry.match);
+    if (rule && proc.includes(rule) && lTitle.includes(entry.titleMatch.toLowerCase())) {
       return { type: 'rule', entry };
     }
   }
   for (const entry of appMap) {
     if (entry.titleMatch) continue;
-    if (proc.includes(entry.match.toLowerCase())) return { type: 'rule', entry };
+    const rule = ruleProcessName(entry.match);
+    if (rule && proc.includes(rule)) return { type: 'rule', entry };
   }
   if (builtInMap[proc]) return { type: 'builtIn', profile: builtInMap[proc] };
   return null;

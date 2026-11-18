@@ -256,7 +256,7 @@
   <h2>Auto Profile Switcher <span id="plugin-version" class="version"></span></h2>
   <p class="description">
     <b>Maps any Windows processes to StreamDeck profile names.</b><br>
-    <li/>Process name works by partial match (e.g. "teams" matches "ms-teams.exe").
+    <li/>Process name works by partial match (e.g. "teams" matches "ms-teams"). A trailing ".exe" is ignored.
     <li/>Optionally add a window title match for finer control (e.g. "PowerShell" matches "Windows PowerShell").
     <li/>This action configures only the Stream Deck where it is placed.
   </p>
@@ -487,9 +487,10 @@
     const rows = document.querySelectorAll(".row");
     return Array.from(rows)
       .map(r => {
-        const entry = {
-          match:   r.querySelector(".match-input").value.trim(),
-        };
+        const matchInput = r.querySelector(".match-input");
+        const match = matchInput.value.trim().replace(/\.exe$/i, "");
+        matchInput.value = match;
+        const entry = { match };
         const profile = r.querySelector(".profile-input").value.trim();
         if (profile) entry.profile = profile;
         const t = r.querySelector(".title-input").value.trim();

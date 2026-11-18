@@ -37,6 +37,22 @@ test("returns null when nothing matches", () => {
   assert.equal(detectProfile("unknown", "title", appMap, {}), null);
 });
 
+test("a trailing .exe on a process rule still matches the reported process name", () => {
+  assert.equal(
+    detectProfile("winword", "Lectionary Test.docx - Word", [
+      { match: "WINWORD.EXE", titleMatch: "Lectionary", profile: "Lectionary" },
+    ], {}),
+    "Lectionary",
+  );
+});
+
+test("a process rule that is only .exe does not match every process", () => {
+  assert.equal(
+    detectProfile("winword", "", [{ match: ".exe", profile: "Word" }], {}),
+    null,
+  );
+});
+
 test("legacy profile rules broadcast to every connected device", () => {
   const match = findProfileMatch("calc", "", appMap, {});
   assert.deepEqual(
